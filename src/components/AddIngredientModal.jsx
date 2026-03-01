@@ -10,6 +10,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
+  // Generated image preview state
+  const [generatedUrl, setGeneratedUrl] = useState(null)
+  const [generatedEmoji, setGeneratedEmoji] = useState(null)
+
   // Show preview for initialFile if provided
   useState(() => {
     if (initialFile && initialFile.type?.startsWith('image/')) {
@@ -31,6 +35,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     }
     setError(null)
     setFile(f)
+    // Clear any generated preview when user picks their own image
+    setGeneratedUrl(null)
+    setGeneratedEmoji(null)
     if (f.type.startsWith('image/') && !f.name.match(/\.(heic|heif)$/i)) {
       const reader = new FileReader()
       reader.onload = (e) => setPreview(e.target.result)
@@ -46,61 +53,49 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     handleFile(e.dataTransfer.files[0])
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!name.trim()) return
-
+  // Generate an AI image (or regenerate)
+  const handleGenerate = async () => {
     setProcessing(true)
     setError(null)
+    setStatus('Generating image...')
+    setGeneratedUrl(null)
+    setGeneratedEmoji(null)
 
     try {
-      let imageUrl = null
+      const genRes = await fetch('/api/images/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      })
+      if (!genRes.ok) throw new Error('Generation failed')
+      const genData = await genRes.json()
 
-      if (file) {
-        // User provided an image — upload for processing
-        setStatus('Converting to transparent PNG...')
-        const formData = new FormData()
-        formData.append('image', file)
-
-        const imgRes = await fetch('/api/images/process', { method: 'POST', body: formData })
-        if (!imgRes.ok) {
-          const err = await imgRes.json().catch(() => ({}))
-          throw new Error(err.error || 'Image processing failed')
-        }
-        const imgData = await imgRes.json()
-        imageUrl = imgData.url
+      if (genData.url) {
+        setGeneratedUrl(genData.url)
+      } else if (genData.emoji) {
+        setGeneratedEmoji(genData.emoji)
       }
+    } catch {
+      setError('Image generation failed. You can try again or add without an image.')
+    } finally {
+      setProcessing(false)
+      setStatus('')
+    }
+  }
 
-      // If no image uploaded, try to auto-generate one via AI
-      let emoji = null
-      if (!imageUrl) {
-        setStatus('Generating image...')
-        try {
-          const genRes = await fetch('/api/images/generate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim() }),
-          })
-          if (genRes.ok) {
-            const genData = await genRes.json()
-            if (genData.url) imageUrl = genData.url
-            else if (genData.emoji) emoji = genData.emoji
-          }
-        } catch {
-          // Non-critical — ingredient will use letter avatar
-        }
-      }
+  // Save the ingredient with whatever image we have
+  const handleSave = async (imageUrl, emoji) => {
+    setProcessing(true)
+    setError(null)
+    setStatus('Saving...')
 
-      // Save the ingredient
-      setStatus('Saving...')
+    try {
       const res = await fetch('/api/ingredients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), imageUrl, emoji }),
       })
-
       if (!res.ok) throw new Error('Failed to save ingredient')
-
       const ingredient = await res.json()
       onSubmit(ingredient)
     } catch (err) {
@@ -111,18 +106,49 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     }
   }
 
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!name.trim()) return
+
+    if (file) {
+      // User provided an image — upload, process, save directly
+      setProcessing(true)
+      setError(null)
+      setStatus('Converting to transparent PNG...')
+
+      try {
+        const formData = new FormData()
+        formData.append('image', file)
+        const imgRes = await fetch('/api/images/process', { method: 'POST', body: formData })
+        if (!imgRes.ok) {
+          const err = await imgRes.json().catch(() => ({}))
+          throw new Error(err.error || 'Image processing failed')
+        }
+        const imgData = await imgRes.json()
+        await handleSave(imgData.url, null)
+      } catch (err) {
+        setError(err.message)
+        setProcessing(false)
+        setStatus('')
+      }
+    } else {
+      // No image — generate an AI preview first
+      await handleGenerate()
+    }
+  }
+
+  // Are we in the "preview generated image" state?
+  const showingGenerated = !!(generatedUrl || generatedEmoji)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-brown/30 backdrop-blur-sm" onClick={onClose} />
 
-      <form
-        onSubmit={handleSubmit}
-        className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
-      >
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <h2 className="text-lg font-display font-semibold text-brown">
-            Add an Ingredient
+            {showingGenerated ? 'Preview' : 'Add an Ingredient'}
           </h2>
           <button
             type="button"
@@ -135,111 +161,191 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           </button>
         </div>
 
-        <div className="px-6 pb-6 space-y-4">
-          {/* Name input */}
-          <div>
-            <input
-              type="text"
-              placeholder="Ingredient name *"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-gray-200
-                         focus:border-peach focus:ring-2 focus:ring-peach/20 outline-none
-                         text-brown placeholder:text-brown-light/50 transition-all"
-              required
-              autoFocus
-            />
-            <p className="text-xs text-brown-light/60 mt-1.5 px-1">
-              Skip the image and we&apos;ll auto-generate one
-            </p>
-          </div>
-
-          {/* Drop zone */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-            onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-xl p-5 text-center cursor-pointer
-                       transition-all duration-200
-                       ${isDragging
-                         ? 'border-coral bg-coral/5 scale-[1.02]'
-                         : preview || file
-                           ? 'border-peach/50 bg-peach/5'
-                           : 'border-gray-200 hover:border-peach hover:bg-peach/5'}`}
-          >
-            {preview ? (
-              <div className="flex flex-col items-center gap-2">
-                <img src={preview} alt="Preview" className="w-16 h-16 object-contain" />
-                <p className="text-xs text-brown-light">Click or drop to replace</p>
+        {showingGenerated ? (
+          /* ── Generated image preview ── */
+          <div className="px-6 pb-6">
+            <div className="flex flex-col items-center gap-4">
+              {/* Preview image */}
+              <div className="w-32 h-32 rounded-2xl bg-sand/30 flex items-center justify-center overflow-hidden border border-gray-100">
+                {generatedUrl ? (
+                  <img
+                    src={generatedUrl}
+                    alt={name}
+                    className="w-full h-full object-contain"
+                  />
+                ) : generatedEmoji ? (
+                  <span className="text-6xl">{generatedEmoji}</span>
+                ) : null}
               </div>
-            ) : file ? (
-              <div className="flex flex-col items-center gap-2">
-                <div className="w-12 h-12 rounded-full bg-peach/20 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+
+              <p className="text-sm text-brown font-medium">{name.trim()}</p>
+              <p className="text-xs text-brown-light/60">
+                {generatedUrl ? 'AI-generated image' : 'Emoji match'}
+              </p>
+
+              {/* Error */}
+              {error && (
+                <p className="text-red-500 text-sm text-center">{error}</p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={processing}
+                className="px-5 py-2.5 text-sm font-medium rounded-full
+                           border border-gray-200 text-brown-light hover:text-brown
+                           hover:border-gray-300 transition-all
+                           disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing ? (
+                  <>
+                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                    </svg>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Regenerate
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(generatedUrl, generatedEmoji)}
+                disabled={processing}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
-                </div>
-                <p className="text-sm font-medium text-brown">{file.name}</p>
-                <p className="text-xs text-brown-light">Will be converted to transparent PNG</p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-1.5 py-1">
-                <div className="w-10 h-10 rounded-full bg-sand/40 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-brown-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium text-brown">
-                  Drop any image here
-                  <span className="font-normal text-brown-light"> (optional)</span>
-                </p>
-                <p className="text-xs text-brown-light">
-                  JPG, PNG, HEIC, WebP — auto-converted to transparent PNG
-                </p>
-              </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*,.heic,.heif"
-              onChange={(e) => handleFile(e.target.files[0])}
-              className="hidden"
-            />
+                )}
+                {processing ? 'Saving...' : 'Add to Fridge'}
+              </button>
+            </div>
           </div>
+        ) : (
+          /* ── Normal form ── */
+          <form onSubmit={handleSubmit}>
+            <div className="px-6 pb-6 space-y-4">
+              {/* Name input */}
+              <div>
+                <input
+                  type="text"
+                  placeholder="Ingredient name *"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-lg border border-gray-200
+                             focus:border-peach focus:ring-2 focus:ring-peach/20 outline-none
+                             text-brown placeholder:text-brown-light/50 transition-all"
+                  required
+                  autoFocus
+                />
+                <p className="text-xs text-brown-light/60 mt-1.5 px-1">
+                  Skip the image and we&apos;ll auto-generate one
+                </p>
+              </div>
 
-          {/* Error */}
-          {error && (
-            <p className="text-red-500 text-sm text-center">{error}</p>
-          )}
-        </div>
+              {/* Drop zone */}
+              <div
+                onDrop={handleDrop}
+                onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
+                onClick={() => fileInputRef.current?.click()}
+                className={`relative border-2 border-dashed rounded-xl p-5 text-center cursor-pointer
+                           transition-all duration-200
+                           ${isDragging
+                             ? 'border-coral bg-coral/5 scale-[1.02]'
+                             : preview || file
+                               ? 'border-peach/50 bg-peach/5'
+                               : 'border-gray-200 hover:border-peach hover:bg-peach/5'}`}
+              >
+                {preview ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <img src={preview} alt="Preview" className="w-16 h-16 object-contain" />
+                    <p className="text-xs text-brown-light">Click or drop to replace</p>
+                  </div>
+                ) : file ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="w-12 h-12 rounded-full bg-peach/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-brown">{file.name}</p>
+                    <p className="text-xs text-brown-light">Will be converted to transparent PNG</p>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1.5 py-1">
+                    <div className="w-10 h-10 rounded-full bg-sand/40 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-brown-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <p className="text-sm font-medium text-brown">
+                      Drop any image here
+                      <span className="font-normal text-brown-light"> (optional)</span>
+                    </p>
+                    <p className="text-xs text-brown-light">
+                      JPG, PNG, HEIC, WebP — auto-converted to transparent PNG
+                    </p>
+                  </div>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={(e) => handleFile(e.target.files[0])}
+                  className="hidden"
+                />
+              </div>
 
-        {/* Actions */}
-        <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-5 py-2.5 text-brown-light hover:text-brown transition-colors text-sm font-medium"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!name.trim() || processing}
-            className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
-                       flex items-center gap-2"
-          >
-            {processing && (
-              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-              </svg>
-            )}
-            {processing ? status || 'Processing...' : 'Add to Fridge'}
-          </button>
-        </div>
-      </form>
+              {/* Error */}
+              {error && (
+                <p className="text-red-500 text-sm text-center">{error}</p>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-brown-light hover:text-brown transition-colors text-sm font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!name.trim() || processing}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                )}
+                {processing ? status || 'Processing...' : file ? 'Add to Fridge' : 'Generate Preview'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
     </div>
   )
 }
