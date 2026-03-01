@@ -71,10 +71,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         imageUrl = imgData.url
       }
 
-      // If no image, try to auto-match an emoji
+      // If no image uploaded, try to auto-generate one via AI
       let emoji = null
       if (!imageUrl) {
-        setStatus('Finding a matching icon...')
+        setStatus('Generating image...')
         try {
           const genRes = await fetch('/api/images/generate', {
             method: 'POST',
@@ -83,7 +83,8 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           })
           if (genRes.ok) {
             const genData = await genRes.json()
-            if (genData.emoji) emoji = genData.emoji
+            if (genData.url) imageUrl = genData.url
+            else if (genData.emoji) emoji = genData.emoji
           }
         } catch {
           // Non-critical — ingredient will use letter avatar
@@ -149,7 +150,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               autoFocus
             />
             <p className="text-xs text-brown-light/60 mt-1.5 px-1">
-              We&apos;ll auto-find a matching icon if you skip the image
+              Skip the image and we&apos;ll auto-generate one
             </p>
           </div>
 

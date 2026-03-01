@@ -282,19 +282,60 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
   }
 })
 
-// Find a matching emoji for an ingredient name
-app.post('/api/images/generate', (req, res) => {
+// Generate a transparent PNG for an ingredient name using AI (Pollinations.ai — free, no key)
+// Falls back to emoji match if image generation fails
+app.post('/api/images/generate', async (req, res) => {
   const { name } = req.body
   if (!name) return res.status(400).json({ error: 'Name is required' })
 
-  const codepoint = findEmojiCodepoint(name)
-  if (!codepoint) {
-    return res.json({ emoji: null, matched: false })
+  const trimmed = name.trim()
+
+  // Try AI image generation first
+  try {
+    const prompt = encodeURIComponent(
+      `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
+    )
+    const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
+
+    console.log(`Generating image for "${trimmed}" via Pollinations...`)
+    const response = await fetch(url, { signal: AbortSignal.timeout(30000) })
+
+    if (response.ok) {
+      const arrayBuf = await response.arrayBuffer()
+      const imgBuffer = Buffer.from(arrayBuf)
+
+      // Convert to 256x256 PNG
+      let pngBuffer = await sharp(imgBuffer)
+        .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .png()
+        .toBuffer()
+
+      // Remove background
+      try {
+        pngBuffer = await removeBackground(pngBuffer)
+      } catch (e) {
+        console.warn('Background removal skipped for generated image:', e.message)
+      }
+
+      const filename = `gen-${crypto.randomUUID()}.png`
+      writeFileSync(join(UPLOADS_DIR, filename), pngBuffer)
+
+      console.log(`Generated image for "${trimmed}" → ${filename}`)
+      return res.json({ url: `/api/uploads/${filename}`, emoji: null, matched: true })
+    }
+  } catch (err) {
+    console.warn(`AI generation failed for "${trimmed}":`, err.message)
   }
 
-  const emoji = codepointToEmoji(codepoint)
-  console.log(`Matched emoji for "${name}" → ${emoji}`)
-  res.json({ emoji, matched: true })
+  // Fallback: emoji match
+  const codepoint = findEmojiCodepoint(trimmed)
+  if (codepoint) {
+    const emoji = codepointToEmoji(codepoint)
+    console.log(`Emoji fallback for "${trimmed}" → ${emoji}`)
+    return res.json({ url: null, emoji, matched: true })
+  }
+
+  res.json({ url: null, emoji: null, matched: false })
 })
 
 // Get custom ingredients
