@@ -225,6 +225,12 @@ app.use(cors())
 app.use(express.json())
 app.use('/api/uploads', express.static(UPLOADS_DIR))
 
+// Serve the built frontend (production)
+const DIST_DIR = join(__dirname, '..', 'dist')
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR))
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -371,6 +377,13 @@ app.delete('/api/ingredients/:id', (req, res) => {
   writeData(data)
   res.json({ ok: true })
 })
+
+// Catch-all: serve frontend for client-side routing (production)
+if (existsSync(DIST_DIR)) {
+  app.get('/{*splat}', (_req, res) => {
+    res.sendFile(join(DIST_DIR, 'index.html'))
+  })
+}
 
 // Express error handler (catches multer errors, etc.)
 app.use((err, _req, res, _next) => {
