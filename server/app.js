@@ -299,7 +299,7 @@ app.post('/api/images/generate', async (req, res) => {
   const seed = Date.now()
 
   const endpoints = [
-    { label: 'gen', url: `https://gen.pollinations.ai/image/${prompt}?width=512&height=512&nologo=true&seed=${seed}&model=flux` },
+    { label: 'gen', url: `https://gen.pollinations.ai/image/${prompt}?model=flux` },
     { label: 'image', url: `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}` },
   ]
 
