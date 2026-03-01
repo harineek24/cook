@@ -36,6 +36,10 @@ const EMOJI_MAP = {
   guava: '1f351', papaya: '1f351', dragonfruit: '1f351',
   passionfruit: '1f351', lychee: '1f351', date: '1f351',
   rice: '1f35a', pasta: '1f35d', noodles: '1f35c', bread: '1f35e',
+  wheat: '1f33e', millet: '1f33e', barley: '1f33e', oats: '1f33e',
+  oatmeal: '1f33e', quinoa: '1f33e', couscous: '1f33e', bulgur: '1f33e',
+  sorghum: '1f33e', rye: '1f33e', buckwheat: '1f33e', amaranth: '1f33e',
+  cornmeal: '1f33d', polenta: '1f33d', grits: '1f33d', semolina: '1f33e',
   honey: '1f36f', peanuts: '1f95c', peanut: '1f95c',
   chili: '1f336-fe0f', 'chili pepper': '1f336-fe0f',
   'olive oil': '1fad2', oil: '1fad2', flour: '1f35e',
@@ -297,7 +301,9 @@ app.post('/api/images/generate', async (req, res) => {
     return res.json({ url: null, emoji, matched: true })
   }
 
-  res.json({ url: null, emoji: null, matched: false })
+  // Ultimate fallback: generic food emoji so every ingredient gets something
+  console.log(`No match for "${trimmed}", using generic fallback`)
+  res.json({ url: null, emoji: '\u{1F372}', matched: true })
 })
 
 // Get custom ingredients
