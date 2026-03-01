@@ -72,104 +72,6 @@ function findEmojiCodepoint(name) {
   return null
 }
 
-// ── Background removal (flood-fill from edges) ─────────────────
-async function removeBackground(inputBuffer) {
-  const { data, info } = await sharp(inputBuffer)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const { width, height, channels } = info
-  if (channels !== 4) return inputBuffer
-
-  const pixelCount = width * height
-  const visited = new Uint8Array(pixelCount)
-  const isBg = new Uint8Array(pixelCount)
-
-  const idx = (x, y) => y * width + x
-  const pixelAt = (i) => [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]
-
-  function colorDist(a, b) {
-    return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
-  }
-
-  const tolerance = 40
-  const queue = []
-
-  for (let x = 0; x < width; x++) {
-    queue.push(idx(x, 0))
-    queue.push(idx(x, height - 1))
-  }
-  for (let y = 1; y < height - 1; y++) {
-    queue.push(idx(0, y))
-    queue.push(idx(width - 1, y))
-  }
-
-  for (const i of queue) {
-    visited[i] = 1
-    isBg[i] = 1
-  }
-
-  const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]]
-  let head = 0
-  while (head < queue.length) {
-    const ci = queue[head++]
-    const cx = ci % width
-    const cy = (ci - cx) / width
-    const cColor = pixelAt(ci)
-
-    for (const [dx, dy] of neighbors) {
-      const nx = cx + dx
-      const ny = cy + dy
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
-      const ni = idx(nx, ny)
-      if (visited[ni]) continue
-
-      const nColor = pixelAt(ni)
-      const dist = colorDist(cColor, nColor)
-
-      if (dist < tolerance) {
-        visited[ni] = 1
-        isBg[ni] = 1
-        queue.push(ni)
-      } else {
-        visited[ni] = 1
-      }
-    }
-  }
-
-  const feather = new Float32Array(pixelCount)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = idx(x, y)
-      if (isBg[i]) {
-        feather[i] = 0
-        continue
-      }
-      let bgCount = 0
-      let total = 0
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const sx = x + dx
-          const sy = y + dy
-          if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue
-          total++
-          if (isBg[idx(sx, sy)]) bgCount++
-        }
-      }
-      feather[i] = total > 0 ? 1 - (bgCount / total) : 1
-    }
-  }
-
-  for (let i = 0; i < pixelCount; i++) {
-    const alpha = Math.round(feather[i] * 255)
-    data[i * 4 + 3] = Math.min(data[i * 4 + 3], alpha)
-  }
-
-  return sharp(data, { raw: { width, height, channels } })
-    .png()
-    .toBuffer()
-}
 
 function codepointToEmoji(codepoint) {
   return codepoint.split('-').map(cp => String.fromCodePoint(parseInt(cp, 16))).join('')
@@ -230,7 +132,7 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
     try {
       pngBuffer = await sharp(req.file.buffer)
         .rotate()
-        .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .resize(256, 256, { fit: 'cover' })
         .png()
         .toBuffer()
     } catch (err) {
@@ -238,12 +140,6 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
       return res.status(400).json({
         error: `Cannot process this image format. ${err.message.includes('heif') ? 'HEIC/HEIF support not available — try converting to JPG first.' : 'Try a different image.'}`,
       })
-    }
-
-    try {
-      pngBuffer = await removeBackground(pngBuffer)
-    } catch (e) {
-      console.warn('Background removal skipped:', e.message)
     }
 
     const url = await saveImage(pngBuffer)
@@ -318,15 +214,9 @@ app.post('/api/images/generate', async (req, res) => {
       debug[ep.label] = `ok ${result.buffer.length}b in ${result.elapsed}ms`
 
       let pngBuffer = await sharp(result.buffer)
-        .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .resize(256, 256, { fit: 'cover' })
         .png()
         .toBuffer()
-
-      try {
-        pngBuffer = await removeBackground(pngBuffer)
-      } catch (e) {
-        console.warn('Background removal skipped:', e.message)
-      }
 
       try {
         aiUrl = await saveImage(pngBuffer)
