@@ -204,6 +204,12 @@ app.use(cors(
 ))
 app.use(express.json())
 
+// Serve the built frontend (production)
+const DIST_DIR = join(__dirname, '..', 'dist')
+if (existsSync(DIST_DIR)) {
+  app.use(express.static(DIST_DIR))
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -369,12 +375,14 @@ app.delete('/api/ingredients/:id', async (req, res) => {
   }
 })
 
-// Health check
-app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok' })
-})
+// Catch-all: serve frontend for client-side routing (production)
+if (existsSync(DIST_DIR)) {
+  app.get('/{*splat}', (_req, res) => {
+    res.sendFile(join(DIST_DIR, 'index.html'))
+  })
+}
 
-// Express error handler
+// Express error handler (catches multer errors, etc.)
 app.use((err, _req, res, _next) => {
   console.error('Server error:', err.message)
   res.status(500).json({ error: err.message || 'Internal server error' })
