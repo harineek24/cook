@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
   const [name, setName] = useState(initialName)
@@ -15,13 +15,13 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [generatedEmoji, setGeneratedEmoji] = useState(null)
 
   // Show preview for initialFile if provided
-  useState(() => {
+  useEffect(() => {
     if (initialFile && initialFile.type?.startsWith('image/')) {
       const reader = new FileReader()
       reader.onload = (e) => setPreview(e.target.result)
       reader.readAsDataURL(initialFile)
     }
-  })
+  }, [initialFile])
 
   const handleFile = useCallback((f) => {
     if (!f) return
