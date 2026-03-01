@@ -2,37 +2,40 @@ import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
 import sharp from 'sharp'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
+import { existsSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import crypto from 'crypto'
+import { neon } from '@neondatabase/serverless'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
-
 const IS_VERCEL = !!process.env.VERCEL
-const UPLOADS_DIR = IS_VERCEL ? join('/tmp', 'uploads') : join(__dirname, 'uploads')
-const DATA_FILE = IS_VERCEL ? join('/tmp', 'data.json') : join(__dirname, 'data.json')
 
-if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
-
-// ── Data helpers ────────────────────────────────────────────────
-function readData() {
-  if (!existsSync(DATA_FILE)) return { ingredients: [] }
-  try {
-    return JSON.parse(readFileSync(DATA_FILE, 'utf-8'))
-  } catch {
-    return { ingredients: [] }
-  }
+// ── Database ─────────────────────────────────────────────────────
+function getDb() {
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL environment variable is not set')
+  return neon(url)
 }
 
-function writeData(data) {
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
+let dbReady = false
+async function initDb() {
+  if (dbReady) return
+  const sql = getDb()
+  await sql`
+    CREATE TABLE IF NOT EXISTS ingredients (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      image TEXT,
+      emoji TEXT,
+      custom BOOLEAN DEFAULT TRUE
+    )
+  `
+  dbReady = true
 }
 
 // ── Emoji lookup for auto-image generation ──────────────────────
-// Maps lowercase ingredient names → Twemoji codepoints
 const EMOJI_MAP = {
   // Proteins
   chicken: '1f357', beef: '1f969', salmon: '1f41f', fish: '1f41f',
@@ -95,9 +98,7 @@ const EMOJI_MAP = {
 
 function findEmojiCodepoint(name) {
   const lower = name.toLowerCase().trim()
-  // Exact match
   if (EMOJI_MAP[lower]) return EMOJI_MAP[lower]
-  // Partial match — check if any key is contained in the name or vice versa
   for (const [key, code] of Object.entries(EMOJI_MAP)) {
     if (lower.includes(key) || key.includes(lower)) return code
   }
@@ -115,7 +116,6 @@ async function removeBackground(inputBuffer) {
   if (channels !== 4) return inputBuffer
 
   const pixelCount = width * height
-  // Track which pixels have been visited and which are background
   const visited = new Uint8Array(pixelCount)
   const isBg = new Uint8Array(pixelCount)
 
@@ -126,13 +126,9 @@ async function removeBackground(inputBuffer) {
     return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
   }
 
-  // Flood fill from all edge pixels.
-  // A pixel is background if it's similar enough to its neighbor that
-  // initiated the fill (adaptive threshold based on local context).
   const tolerance = 40
   const queue = []
 
-  // Seed all edge pixels
   for (let x = 0; x < width; x++) {
     queue.push(idx(x, 0))
     queue.push(idx(x, height - 1))
@@ -142,13 +138,11 @@ async function removeBackground(inputBuffer) {
     queue.push(idx(width - 1, y))
   }
 
-  // Mark seeds
   for (const i of queue) {
     visited[i] = 1
     isBg[i] = 1
   }
 
-  // BFS flood fill
   const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]]
   let head = 0
   while (head < queue.length) {
@@ -172,23 +166,19 @@ async function removeBackground(inputBuffer) {
         isBg[ni] = 1
         queue.push(ni)
       } else {
-        // Mark as visited but NOT background (it's an edge/foreground pixel)
         visited[ni] = 1
       }
     }
   }
 
-  // Apply the mask: background pixels → transparent, with edge feathering
-  // First pass: count background neighbors for feathering
   const feather = new Float32Array(pixelCount)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = idx(x, y)
       if (isBg[i]) {
-        feather[i] = 0 // fully transparent
+        feather[i] = 0
         continue
       }
-      // Count how many of the surrounding 5x5 pixels are background
       let bgCount = 0
       let total = 0
       for (let dy = -2; dy <= 2; dy++) {
@@ -200,12 +190,10 @@ async function removeBackground(inputBuffer) {
           if (isBg[idx(sx, sy)]) bgCount++
         }
       }
-      // If surrounded by some background, partially transparent (feathered edge)
       feather[i] = total > 0 ? 1 - (bgCount / total) : 1
     }
   }
 
-  // Apply alpha
   for (let i = 0; i < pixelCount; i++) {
     const alpha = Math.round(feather[i] * 255)
     data[i * 4 + 3] = Math.min(data[i * 4 + 3], alpha)
@@ -216,15 +204,17 @@ async function removeBackground(inputBuffer) {
     .toBuffer()
 }
 
-// Convert codepoint string to emoji character
 function codepointToEmoji(codepoint) {
   return codepoint.split('-').map(cp => String.fromCodePoint(parseInt(cp, 16))).join('')
 }
 
+function bufferToDataUrl(buffer) {
+  return `data:image/png;base64,${buffer.toString('base64')}`
+}
+
 // ── Middleware ───────────────────────────────────────────────────
 app.use(cors())
-app.use(express.json())
-app.use('/api/uploads', express.static(UPLOADS_DIR))
+app.use(express.json({ limit: '10mb' }))
 
 // Serve the built frontend (production)
 const DIST_DIR = join(__dirname, '..', 'dist')
@@ -236,7 +226,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    // Accept any image mimetype + HEIC/HEIF by extension
     if (file.mimetype.startsWith('image/') ||
         /\.(heic|heif|jpg|jpeg|png|webp|avif|tiff?)$/i.test(file.originalname)) {
       cb(null, true)
@@ -248,18 +237,17 @@ const upload = multer({
 
 // ── Routes ──────────────────────────────────────────────────────
 
-// Process an uploaded image → transparent PNG
+// Process an uploaded image → transparent PNG (returns base64 data URL)
 app.post('/api/images/process', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No image uploaded' })
 
     console.log(`Processing image: ${req.file.originalname} (${req.file.mimetype}, ${req.file.size} bytes)`)
 
-    // Step 1: Auto-orient (EXIF rotation from phones) + convert to PNG
     let pngBuffer
     try {
       pngBuffer = await sharp(req.file.buffer)
-        .rotate()  // auto-orient based on EXIF
+        .rotate()
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
         .png()
         .toBuffer()
@@ -270,19 +258,15 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
       })
     }
 
-    // Step 2: Background removal
     try {
       pngBuffer = await removeBackground(pngBuffer)
     } catch (e) {
       console.warn('Background removal skipped:', e.message)
     }
 
-    // Step 3: Save
-    const filename = `${crypto.randomUUID()}.png`
-    writeFileSync(join(UPLOADS_DIR, filename), pngBuffer)
-
-    console.log(`Saved processed image: ${filename}`)
-    res.json({ url: `/api/uploads/${filename}` })
+    const dataUrl = bufferToDataUrl(pngBuffer)
+    console.log(`Processed image (${Math.round(dataUrl.length / 1024)}KB data URL)`)
+    res.json({ url: dataUrl })
   } catch (err) {
     console.error('Image processing error:', err)
     res.status(500).json({ error: 'Failed to process image. Try a JPG or PNG.' })
@@ -311,24 +295,20 @@ app.post('/api/images/generate', async (req, res) => {
       const arrayBuf = await response.arrayBuffer()
       const imgBuffer = Buffer.from(arrayBuf)
 
-      // Convert to 256x256 PNG
       let pngBuffer = await sharp(imgBuffer)
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
         .png()
         .toBuffer()
 
-      // Remove background
       try {
         pngBuffer = await removeBackground(pngBuffer)
       } catch (e) {
         console.warn('Background removal skipped for generated image:', e.message)
       }
 
-      const filename = `gen-${crypto.randomUUID()}.png`
-      writeFileSync(join(UPLOADS_DIR, filename), pngBuffer)
-
-      console.log(`Generated image for "${trimmed}" → ${filename}`)
-      return res.json({ url: `/api/uploads/${filename}`, emoji: null, matched: true })
+      const dataUrl = bufferToDataUrl(pngBuffer)
+      console.log(`Generated image for "${trimmed}" (${Math.round(dataUrl.length / 1024)}KB)`)
+      return res.json({ url: dataUrl, emoji: null, matched: true })
     }
   } catch (err) {
     console.warn(`AI generation failed for "${trimmed}":`, err.message)
@@ -346,37 +326,55 @@ app.post('/api/images/generate', async (req, res) => {
 })
 
 // Get custom ingredients
-app.get('/api/ingredients', (_req, res) => {
-  const data = readData()
-  res.json(data.ingredients)
+app.get('/api/ingredients', async (_req, res) => {
+  try {
+    await initDb()
+    const sql = getDb()
+    const rows = await sql`SELECT id, name, image, emoji, custom FROM ingredients ORDER BY id`
+    res.json(rows)
+  } catch (err) {
+    console.error('Failed to fetch ingredients:', err.message)
+    res.status(500).json({ error: 'Failed to fetch ingredients' })
+  }
 })
 
 // Add a custom ingredient
-app.post('/api/ingredients', (req, res) => {
+app.post('/api/ingredients', async (req, res) => {
   const { name, imageUrl, emoji } = req.body
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' })
 
-  const data = readData()
-  const ingredient = {
-    id: name.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
-    name: name.trim(),
-    image: imageUrl || null,
-    emoji: emoji || null,
-    custom: true,
+  try {
+    await initDb()
+    const sql = getDb()
+    const id = name.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Date.now()
+    const trimmedName = name.trim()
+    const image = imageUrl || null
+    const emojiVal = emoji || null
+
+    await sql`
+      INSERT INTO ingredients (id, name, image, emoji, custom)
+      VALUES (${id}, ${trimmedName}, ${image}, ${emojiVal}, true)
+    `
+
+    const ingredient = { id, name: trimmedName, image, emoji: emojiVal, custom: true }
+    res.status(201).json(ingredient)
+  } catch (err) {
+    console.error('Failed to save ingredient:', err.message)
+    res.status(500).json({ error: 'Failed to save ingredient' })
   }
-
-  data.ingredients.push(ingredient)
-  writeData(data)
-
-  res.status(201).json(ingredient)
 })
 
 // Delete a custom ingredient
-app.delete('/api/ingredients/:id', (req, res) => {
-  const data = readData()
-  data.ingredients = data.ingredients.filter((i) => i.id !== req.params.id)
-  writeData(data)
-  res.json({ ok: true })
+app.delete('/api/ingredients/:id', async (req, res) => {
+  try {
+    await initDb()
+    const sql = getDb()
+    await sql`DELETE FROM ingredients WHERE id = ${req.params.id}`
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Failed to delete ingredient:', err.message)
+    res.status(500).json({ error: 'Failed to delete ingredient' })
+  }
 })
 
 // Catch-all: serve frontend for client-side routing (production)
