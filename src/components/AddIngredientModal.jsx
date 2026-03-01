@@ -1,52 +1,83 @@
 import { useState, useRef, useCallback } from 'react'
 
-export default function AddIngredientModal({ onSubmit, onClose }) {
-  const [name, setName] = useState('')
-  const [imageData, setImageData] = useState(null)
+export default function AddIngredientModal({ onSubmit, onClose, initialName = '' }) {
+  const [name, setName] = useState(initialName)
+  const [file, setFile] = useState(null)
+  const [preview, setPreview] = useState(null)
+  const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
-  const processFile = useCallback((file) => {
-    if (!file) return
-    if (!file.type.startsWith('image/')) {
-      alert('Please upload an image file (PNG, JPG, etc.)')
+  const handleFile = useCallback((f) => {
+    if (!f) return
+    // Accept any image type including HEIC
+    if (!f.type.startsWith('image/') && !f.name.match(/\.(heic|heif)$/i)) {
+      setError('Please upload an image file')
       return
     }
-    // Cap at 500KB for localStorage friendliness
-    if (file.size > 512000) {
-      alert('Image is too large. Please use an image under 500KB.')
+    if (f.size > 10 * 1024 * 1024) {
+      setError('Image must be under 10MB')
       return
     }
-    const reader = new FileReader()
-    reader.onload = (e) => setImageData(e.target.result)
-    reader.readAsDataURL(file)
+    setError(null)
+    setFile(f)
+    // Show local preview for formats the browser can render
+    if (f.type.startsWith('image/') && !f.name.match(/\.(heic|heif)$/i)) {
+      const reader = new FileReader()
+      reader.onload = (e) => setPreview(e.target.result)
+      reader.readAsDataURL(f)
+    } else {
+      setPreview(null) // HEIC can't preview in browser
+    }
   }, [])
 
   const handleDrop = (e) => {
     e.preventDefault()
     setIsDragging(false)
-    const file = e.dataTransfer.files[0]
-    processFile(file)
+    handleFile(e.dataTransfer.files[0])
   }
 
-  const handleDragOver = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    setIsDragging(true)
-  }
+    if (!name.trim()) return
 
-  const handleDragLeave = (e) => {
-    e.preventDefault()
-    setIsDragging(false)
-  }
+    setProcessing(true)
+    setError(null)
 
-  const handleFileSelect = (e) => {
-    processFile(e.target.files[0])
-  }
+    try {
+      let imageUrl = null
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    if (!name.trim() || !imageData) return
-    onSubmit({ name: name.trim(), image: imageData })
+      // If an image was provided, upload it to the backend for processing
+      if (file) {
+        const formData = new FormData()
+        formData.append('image', file)
+
+        const imgRes = await fetch('/api/images/process', { method: 'POST', body: formData })
+        if (!imgRes.ok) {
+          const err = await imgRes.json().catch(() => ({}))
+          throw new Error(err.error || 'Image processing failed')
+        }
+        const imgData = await imgRes.json()
+        imageUrl = imgData.url
+      }
+
+      // Create the ingredient on the backend
+      const res = await fetch('/api/ingredients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), imageUrl }),
+      })
+
+      if (!res.ok) throw new Error('Failed to save ingredient')
+
+      const ingredient = await res.json()
+      onSubmit(ingredient)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setProcessing(false)
+    }
   }
 
   return (
@@ -76,57 +107,7 @@ export default function AddIngredientModal({ onSubmit, onClose }) {
         </div>
 
         <div className="px-6 pb-6 space-y-4">
-          {/* Drop zone */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onClick={() => fileInputRef.current?.click()}
-            className={`relative border-2 border-dashed rounded-xl p-6 text-center cursor-pointer
-                       transition-all duration-200
-                       ${isDragging
-                         ? 'border-coral bg-coral/5 scale-[1.02]'
-                         : imageData
-                           ? 'border-peach/50 bg-peach/5'
-                           : 'border-gray-200 hover:border-peach hover:bg-peach/5'}`}
-          >
-            {imageData ? (
-              <div className="flex flex-col items-center gap-3">
-                <img
-                  src={imageData}
-                  alt="Preview"
-                  className="w-20 h-20 object-contain"
-                />
-                <p className="text-sm text-brown-light">
-                  Click or drop to replace
-                </p>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 py-2">
-                <div className="w-12 h-12 rounded-full bg-sand/40 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-brown-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <p className="text-sm font-medium text-brown">
-                  Drop a PNG here
-                </p>
-                <p className="text-xs text-brown-light">
-                  or click to browse (max 500KB)
-                </p>
-              </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-          </div>
-
-          {/* Name input */}
+          {/* Name input — first, since it's required */}
           <input
             type="text"
             placeholder="Ingredient name *"
@@ -138,6 +119,66 @@ export default function AddIngredientModal({ onSubmit, onClose }) {
             required
             autoFocus
           />
+
+          {/* Drop zone — optional */}
+          <div
+            onDrop={handleDrop}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={(e) => { e.preventDefault(); setIsDragging(false) }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`relative border-2 border-dashed rounded-xl p-5 text-center cursor-pointer
+                       transition-all duration-200
+                       ${isDragging
+                         ? 'border-coral bg-coral/5 scale-[1.02]'
+                         : preview || file
+                           ? 'border-peach/50 bg-peach/5'
+                           : 'border-gray-200 hover:border-peach hover:bg-peach/5'}`}
+          >
+            {preview ? (
+              <div className="flex flex-col items-center gap-2">
+                <img src={preview} alt="Preview" className="w-16 h-16 object-contain" />
+                <p className="text-xs text-brown-light">Click or drop to replace</p>
+              </div>
+            ) : file ? (
+              <div className="flex flex-col items-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-peach/20 flex items-center justify-center">
+                  <svg className="w-6 h-6 text-coral" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-brown">{file.name}</p>
+                <p className="text-xs text-brown-light">Will be converted to transparent PNG</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-1.5 py-1">
+                <div className="w-10 h-10 rounded-full bg-sand/40 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-brown-light" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+                <p className="text-sm font-medium text-brown">
+                  Drop any image here
+                  <span className="font-normal text-brown-light"> (optional)</span>
+                </p>
+                <p className="text-xs text-brown-light">
+                  JPG, PNG, HEIC, WebP — auto-converted to transparent PNG
+                </p>
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*,.heic,.heif"
+              onChange={(e) => handleFile(e.target.files[0])}
+              className="hidden"
+            />
+          </div>
+
+          {/* Error */}
+          {error && (
+            <p className="text-red-500 text-sm text-center">{error}</p>
+          )}
         </div>
 
         {/* Actions */}
@@ -151,10 +192,17 @@ export default function AddIngredientModal({ onSubmit, onClose }) {
           </button>
           <button
             type="submit"
-            disabled={!name.trim() || !imageData}
-            className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={!name.trim() || processing}
+            className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                       flex items-center gap-2"
           >
-            Add to Fridge
+            {processing && (
+              <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+              </svg>
+            )}
+            {processing ? 'Processing...' : 'Add to Fridge'}
           </button>
         </div>
       </form>

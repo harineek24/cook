@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { mockRecipes } from '../data/mockRecipes'
 
 const RecipeContext = createContext()
@@ -16,25 +16,19 @@ export function RecipeProvider({ children }) {
     return mockRecipes
   })
 
-  const [customIngredients, setCustomIngredients] = useState(() => {
-    const stored = localStorage.getItem('cook-custom-ingredients')
-    if (stored) {
-      try {
-        return JSON.parse(stored)
-      } catch {
-        return []
-      }
-    }
-    return []
-  })
+  const [customIngredients, setCustomIngredients] = useState([])
+
+  // Fetch custom ingredients from backend on mount
+  useEffect(() => {
+    fetch('/api/ingredients')
+      .then((r) => r.ok ? r.json() : [])
+      .then(setCustomIngredients)
+      .catch(() => setCustomIngredients([]))
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('cook-recipes', JSON.stringify(recipes))
   }, [recipes])
-
-  useEffect(() => {
-    localStorage.setItem('cook-custom-ingredients', JSON.stringify(customIngredients))
-  }, [customIngredients])
 
   const addRecipe = (recipe) => {
     const newRecipe = {
@@ -45,14 +39,10 @@ export function RecipeProvider({ children }) {
     setRecipes((prev) => [newRecipe, ...prev])
   }
 
-  const addIngredient = (ingredient) => {
-    const newIngredient = {
-      ...ingredient,
-      id: ingredient.id || ingredient.name.toLowerCase().replace(/\s+/g, '-'),
-      custom: true,
-    }
-    setCustomIngredients((prev) => [...prev, newIngredient])
-  }
+  // Called after the modal already created the ingredient via the API
+  const addIngredient = useCallback((ingredient) => {
+    setCustomIngredients((prev) => [...prev, ingredient])
+  }, [])
 
   const getRecipesByIngredient = (ingredientId) => {
     return recipes.filter((r) => r.ingredientId === ingredientId)

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { ingredients as defaultIngredients } from '../data/ingredients'
 import { useRecipes } from '../context/RecipeContext'
 import AddIngredientModal from '../components/AddIngredientModal'
@@ -31,6 +31,12 @@ const sizes = ['text-3xl', 'text-4xl', 'text-5xl', 'text-4xl', 'text-3xl']
 export default function Home() {
   const { customIngredients, addIngredient } = useRecipes()
   const [showModal, setShowModal] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [addFromSearch, setAddFromSearch] = useState('')
+  const searchInputRef = useRef(null)
+  const searchContainerRef = useRef(null)
+  const navigate = useNavigate()
 
   const allIngredients = useMemo(
     () => [...defaultIngredients, ...customIngredients],
@@ -42,9 +48,47 @@ export default function Home() {
     [allIngredients.length],
   )
 
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return []
+    const q = searchQuery.toLowerCase()
+    return allIngredients.filter((i) => i.name.toLowerCase().includes(q)).slice(0, 8)
+  }, [searchQuery, allIngredients])
+
+  // Focus input when search opens
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus()
+  }, [searchOpen])
+
+  // Close search on outside click
+  useEffect(() => {
+    if (!searchOpen) return
+    const handler = (e) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setSearchOpen(false)
+        setSearchQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [searchOpen])
+
   const handleAddIngredient = (ingredient) => {
     addIngredient(ingredient)
     setShowModal(false)
+    setAddFromSearch('')
+  }
+
+  const handleSearchSelect = (item) => {
+    navigate(`/recipes/${item.id}`)
+    setSearchOpen(false)
+    setSearchQuery('')
+  }
+
+  const handleSearchAddNew = () => {
+    setAddFromSearch(searchQuery)
+    setSearchOpen(false)
+    setSearchQuery('')
+    setShowModal(true)
   }
 
   return (
@@ -64,13 +108,18 @@ export default function Home() {
             animationDelay: `${(seededRandom(i * 7) * 5).toFixed(1)}s`,
           }}
         >
-          {item.custom ? (
+          {item.custom && item.image ? (
             <img
               src={item.image}
               alt={item.name}
               className="w-12 h-12 sm:w-14 sm:h-14 object-contain drop-shadow-md"
               draggable={false}
             />
+          ) : item.custom ? (
+            <span className="w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center
+                           bg-honey/30 rounded-full text-2xl font-display font-bold text-brown">
+              {item.name.charAt(0).toUpperCase()}
+            </span>
           ) : (
             <span className={item.featured ? 'drop-shadow-lg' : ''}>
               {item.emoji}
@@ -113,30 +162,139 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Add ingredient FAB */}
-      <button
-        onClick={() => setShowModal(true)}
-        className="fixed bottom-6 right-6 z-30 w-14 h-14 bg-peach text-white rounded-full
-                   shadow-lg shadow-peach/30 hover:bg-coral hover:scale-110
-                   transition-all duration-200 flex items-center justify-center group"
-        title="Add an ingredient"
-      >
-        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
-        </svg>
-        <span className="absolute right-full mr-3 bg-white/95 backdrop-blur text-brown text-sm
-                       font-medium px-3 py-1.5 rounded-full shadow-md whitespace-nowrap
-                       opacity-0 group-hover:opacity-100 transition-all duration-200
-                       pointer-events-none">
-          Add ingredient
-        </span>
-      </button>
+      {/* Bottom-right controls: Search + Add */}
+      <div className="fixed bottom-6 right-6 z-30 flex items-center gap-3">
+        {/* Search */}
+        <div ref={searchContainerRef} className="relative">
+          {searchOpen ? (
+            <div className="flex flex-col items-end">
+              {/* Search results dropdown */}
+              {searchQuery.trim() && (
+                <div className="absolute bottom-full mb-2 right-0 w-72 bg-white rounded-xl shadow-xl
+                               border border-gray-100 overflow-hidden">
+                  {searchResults.length > 0 ? (
+                    <ul className="max-h-64 overflow-y-auto">
+                      {searchResults.map((item) => (
+                        <li key={item.id}>
+                          <button
+                            onClick={() => handleSearchSelect(item)}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-peach/10
+                                     transition-colors text-left"
+                          >
+                            {item.custom && item.image ? (
+                              <img src={item.image} alt="" className="w-8 h-8 object-contain" />
+                            ) : item.custom ? (
+                              <span className="w-8 h-8 rounded-full bg-honey/30 flex items-center
+                                             justify-center text-sm font-bold text-brown">
+                                {item.name.charAt(0).toUpperCase()}
+                              </span>
+                            ) : (
+                              <span className="text-2xl">{item.emoji}</span>
+                            )}
+                            <span className="text-sm font-medium text-brown">{item.name}</span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="p-4 text-center">
+                      <p className="text-sm text-brown-light mb-2">
+                        No ingredient found
+                      </p>
+                      <button
+                        onClick={handleSearchAddNew}
+                        className="text-sm font-medium text-coral hover:text-coral/80
+                                 transition-colors"
+                      >
+                        + Add &ldquo;{searchQuery}&rdquo; as new ingredient
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Search input */}
+              <div className="flex items-center bg-white rounded-full shadow-lg pl-4 pr-2 py-2 w-72">
+                <svg className="w-5 h-5 text-brown-light mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search ingredients..."
+                  className="flex-1 text-sm text-brown placeholder:text-brown-light/50
+                           outline-none bg-transparent"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchOpen(false)
+                      setSearchQuery('')
+                    }
+                    if (e.key === 'Enter' && searchResults.length > 0) {
+                      handleSearchSelect(searchResults[0])
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => { setSearchOpen(false); setSearchQuery('') }}
+                  className="p-1.5 text-brown-light hover:text-brown transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="w-14 h-14 bg-white text-brown rounded-full shadow-lg
+                       hover:bg-gray-50 hover:scale-110
+                       transition-all duration-200 flex items-center justify-center group"
+              title="Search ingredients"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <span className="absolute right-full mr-3 bg-white/95 backdrop-blur text-brown text-sm
+                             font-medium px-3 py-1.5 rounded-full shadow-md whitespace-nowrap
+                             opacity-0 group-hover:opacity-100 transition-all duration-200
+                             pointer-events-none">
+                Search
+              </span>
+            </button>
+          )}
+        </div>
+
+        {/* Add ingredient FAB */}
+        <button
+          onClick={() => setShowModal(true)}
+          className="w-14 h-14 bg-peach text-white rounded-full
+                     shadow-lg shadow-peach/30 hover:bg-coral hover:scale-110
+                     transition-all duration-200 flex items-center justify-center group"
+          title="Add an ingredient"
+        >
+          <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+          </svg>
+          <span className="absolute right-full mr-3 bg-white/95 backdrop-blur text-brown text-sm
+                         font-medium px-3 py-1.5 rounded-full shadow-md whitespace-nowrap
+                         opacity-0 group-hover:opacity-100 transition-all duration-200
+                         pointer-events-none">
+            Add ingredient
+          </span>
+        </button>
+      </div>
 
       {/* Add ingredient modal */}
       {showModal && (
         <AddIngredientModal
           onSubmit={handleAddIngredient}
-          onClose={() => setShowModal(false)}
+          onClose={() => { setShowModal(false); setAddFromSearch('') }}
+          initialName={addFromSearch}
         />
       )}
     </div>
