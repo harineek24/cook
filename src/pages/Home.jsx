@@ -34,8 +34,10 @@ export default function Home() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [addFromSearch, setAddFromSearch] = useState('')
+  const [addFromFile, setAddFromFile] = useState(null)
   const searchInputRef = useRef(null)
   const searchContainerRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const navigate = useNavigate()
 
   const allIngredients = useMemo(
@@ -76,6 +78,7 @@ export default function Home() {
     addIngredient(ingredient)
     setShowModal(false)
     setAddFromSearch('')
+    setAddFromFile(null)
   }
 
   const handleSearchSelect = (item) => {
@@ -89,6 +92,17 @@ export default function Home() {
     setSearchOpen(false)
     setSearchQuery('')
     setShowModal(true)
+  }
+
+  const handleImageSearch = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setAddFromFile(file)
+    setSearchOpen(false)
+    setSearchQuery('')
+    setShowModal(true)
+    // Reset the input so the same file can be picked again
+    e.target.value = ''
   }
 
   return (
@@ -115,6 +129,8 @@ export default function Home() {
               className="w-12 h-12 sm:w-14 sm:h-14 object-contain drop-shadow-md"
               draggable={false}
             />
+          ) : item.custom && item.emoji ? (
+            <span className="text-4xl drop-shadow-md">{item.emoji}</span>
           ) : item.custom ? (
             <span className="w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center
                            bg-honey/30 rounded-full text-2xl font-display font-bold text-brown">
@@ -188,6 +204,8 @@ export default function Home() {
                           >
                             {item.custom && item.image ? (
                               <img src={item.image} alt="" className="w-8 h-8 object-contain" />
+                            ) : item.custom && item.emoji ? (
+                              <span className="text-2xl">{item.emoji}</span>
                             ) : item.custom ? (
                               <span className="w-8 h-8 rounded-full bg-honey/30 flex items-center
                                              justify-center text-sm font-bold text-brown">
@@ -219,7 +237,7 @@ export default function Home() {
               )}
 
               {/* Search input */}
-              <div className="flex items-center bg-white rounded-full shadow-lg pl-4 pr-2 py-2 w-72">
+              <div className="flex items-center bg-white rounded-full shadow-lg pl-4 pr-1.5 py-2 w-72">
                 <svg className="w-5 h-5 text-brown-light mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                         d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -241,6 +259,28 @@ export default function Home() {
                       handleSearchSelect(searchResults[0])
                     }
                   }}
+                />
+                {/* Camera / image search button */}
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="p-1.5 text-brown-light hover:text-coral transition-colors"
+                  title="Search by photo"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                          d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  capture="environment"
+                  onChange={handleImageSearch}
+                  className="hidden"
                 />
                 <button
                   onClick={() => { setSearchOpen(false); setSearchQuery('') }}
@@ -298,8 +338,9 @@ export default function Home() {
       {showModal && (
         <AddIngredientModal
           onSubmit={handleAddIngredient}
-          onClose={() => { setShowModal(false); setAddFromSearch('') }}
+          onClose={() => { setShowModal(false); setAddFromSearch(''); setAddFromFile(null) }}
           initialName={addFromSearch}
+          initialFile={addFromFile}
         />
       )}
     </div>

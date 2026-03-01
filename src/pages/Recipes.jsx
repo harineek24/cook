@@ -54,6 +54,8 @@ export default function Recipes() {
             <div className="flex items-center gap-2">
               {ingredient.custom && ingredient.image ? (
                 <img src={ingredient.image} alt={ingredient.name} className="w-8 h-8 object-contain" />
+              ) : ingredient.custom && ingredient.emoji ? (
+                <span className="text-2xl sm:text-3xl">{ingredient.emoji}</span>
               ) : ingredient.custom ? (
                 <span className="w-8 h-8 rounded-full bg-honey/30 flex items-center justify-center
                                text-sm font-bold text-brown">
@@ -108,6 +110,8 @@ export default function Recipes() {
           <div className="text-center py-20">
             {ingredient.custom && ingredient.image ? (
               <img src={ingredient.image} alt={ingredient.name} className="w-20 h-20 object-contain mx-auto mb-6" />
+            ) : ingredient.custom && ingredient.emoji ? (
+              <span className="text-7xl mb-6 block">{ingredient.emoji}</span>
             ) : ingredient.custom ? (
               <span className="w-20 h-20 rounded-full bg-honey/30 flex items-center justify-center
                              text-3xl font-display font-bold text-brown mx-auto mb-6">

@@ -1,17 +1,26 @@
 import { useState, useRef, useCallback } from 'react'
 
-export default function AddIngredientModal({ onSubmit, onClose, initialName = '' }) {
+export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
   const [name, setName] = useState(initialName)
-  const [file, setFile] = useState(null)
+  const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
   const [processing, setProcessing] = useState(false)
+  const [status, setStatus] = useState('')
   const [error, setError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
+  // Show preview for initialFile if provided
+  useState(() => {
+    if (initialFile && initialFile.type?.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = (e) => setPreview(e.target.result)
+      reader.readAsDataURL(initialFile)
+    }
+  })
+
   const handleFile = useCallback((f) => {
     if (!f) return
-    // Accept any image type including HEIC
     if (!f.type.startsWith('image/') && !f.name.match(/\.(heic|heif)$/i)) {
       setError('Please upload an image file')
       return
@@ -22,13 +31,12 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     }
     setError(null)
     setFile(f)
-    // Show local preview for formats the browser can render
     if (f.type.startsWith('image/') && !f.name.match(/\.(heic|heif)$/i)) {
       const reader = new FileReader()
       reader.onload = (e) => setPreview(e.target.result)
       reader.readAsDataURL(f)
     } else {
-      setPreview(null) // HEIC can't preview in browser
+      setPreview(null)
     }
   }, [])
 
@@ -48,8 +56,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     try {
       let imageUrl = null
 
-      // If an image was provided, upload it to the backend for processing
       if (file) {
+        // User provided an image — upload for processing
+        setStatus('Converting to transparent PNG...')
         const formData = new FormData()
         formData.append('image', file)
 
@@ -62,11 +71,31 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         imageUrl = imgData.url
       }
 
-      // Create the ingredient on the backend
+      // If no image, try to auto-match an emoji
+      let emoji = null
+      if (!imageUrl) {
+        setStatus('Finding a matching icon...')
+        try {
+          const genRes = await fetch('/api/images/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim() }),
+          })
+          if (genRes.ok) {
+            const genData = await genRes.json()
+            if (genData.emoji) emoji = genData.emoji
+          }
+        } catch {
+          // Non-critical — ingredient will use letter avatar
+        }
+      }
+
+      // Save the ingredient
+      setStatus('Saving...')
       const res = await fetch('/api/ingredients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), imageUrl }),
+        body: JSON.stringify({ name: name.trim(), imageUrl, emoji }),
       })
 
       if (!res.ok) throw new Error('Failed to save ingredient')
@@ -77,15 +106,14 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       setError(err.message)
     } finally {
       setProcessing(false)
+      setStatus('')
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-brown/30 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
       <form
         onSubmit={handleSubmit}
         className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden"
@@ -107,20 +135,25 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         </div>
 
         <div className="px-6 pb-6 space-y-4">
-          {/* Name input — first, since it's required */}
-          <input
-            type="text"
-            placeholder="Ingredient name *"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-4 py-3 rounded-lg border border-gray-200
-                       focus:border-peach focus:ring-2 focus:ring-peach/20 outline-none
-                       text-brown placeholder:text-brown-light/50 transition-all"
-            required
-            autoFocus
-          />
+          {/* Name input */}
+          <div>
+            <input
+              type="text"
+              placeholder="Ingredient name *"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-gray-200
+                         focus:border-peach focus:ring-2 focus:ring-peach/20 outline-none
+                         text-brown placeholder:text-brown-light/50 transition-all"
+              required
+              autoFocus
+            />
+            <p className="text-xs text-brown-light/60 mt-1.5 px-1">
+              We&apos;ll auto-find a matching icon if you skip the image
+            </p>
+          </div>
 
-          {/* Drop zone — optional */}
+          {/* Drop zone */}
           <div
             onDrop={handleDrop}
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
@@ -202,7 +235,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                 <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
               </svg>
             )}
-            {processing ? 'Processing...' : 'Add to Fridge'}
+            {processing ? status || 'Processing...' : 'Add to Fridge'}
           </button>
         </div>
       </form>
