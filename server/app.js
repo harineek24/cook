@@ -290,25 +290,29 @@ app.post('/api/images/generate', async (req, res) => {
   const codepoint = findEmojiCodepoint(trimmed)
   const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
 
-  // Try multiple image sources: TheMealDB (fast, free) then Pollinations (AI-generated)
+  // Try multiple image sources (all free, no key needed)
   let aiUrl = null
   const debug = {}
-  const prompt = encodeURIComponent(
-    `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
-  )
-  const seed = Date.now()
 
-  // TheMealDB uses capitalized ingredient names for their image URLs
+  // Spoonacular CDN uses lowercase hyphenated names: "tomato.jpg", "olive-oil.jpg"
+  const spoonName = trimmed.toLowerCase().replace(/\s+/g, '-')
+
+  // TheMealDB uses capitalized words: "Tomato.png", "Olive Oil.png"
   const mealDbName = trimmed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('%20')
 
+  // Also try just the first/main word for TheMealDB (e.g. "Tomato" from "diced tomatoes")
+  const mainWord = trimmed.split(/\s+/).pop()
+  const mealDbSimple = mainWord.charAt(0).toUpperCase() + mainWord.slice(1).toLowerCase()
+
   const endpoints = [
-    { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png` },
-    { label: 'pollinations', url: `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}` },
+    { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
+    { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
+    ...(mealDbSimple !== mealDbName ? [{ label: 'mealdb2', url: `https://www.themealdb.com/images/ingredients/${mealDbSimple}.png`, timeoutMs: 8000 }] : []),
   ]
 
   for (const ep of endpoints) {
     debug[ep.label] = 'trying...'
-    const result = await tryFetchImage(ep.url, ep.label)
+    const result = await tryFetchImage(ep.url, ep.label, ep.timeoutMs)
 
     if (result.buffer) {
       debug[ep.label] = `ok ${result.buffer.length}b in ${result.elapsed}ms`
