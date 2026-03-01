@@ -290,7 +290,7 @@ app.post('/api/images/generate', async (req, res) => {
   const codepoint = findEmojiCodepoint(trimmed)
   const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
 
-  // Try multiple Pollinations endpoints (different infra, different models)
+  // Try multiple image sources: TheMealDB (fast, free) then Pollinations (AI-generated)
   let aiUrl = null
   const debug = {}
   const prompt = encodeURIComponent(
@@ -298,9 +298,12 @@ app.post('/api/images/generate', async (req, res) => {
   )
   const seed = Date.now()
 
+  // TheMealDB uses capitalized ingredient names for their image URLs
+  const mealDbName = trimmed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('%20')
+
   const endpoints = [
-    { label: 'gen', url: `https://gen.pollinations.ai/image/${prompt}?model=flux` },
-    { label: 'image', url: `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}` },
+    { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png` },
+    { label: 'pollinations', url: `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}` },
   ]
 
   for (const ep of endpoints) {
