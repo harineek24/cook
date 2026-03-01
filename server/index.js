@@ -2,6 +2,7 @@ import app from './app.js'
 import { initDb } from './db.js'
 
 const PORT = process.env.PORT || 3001
+const IS_VERCEL = !!process.env.VERCEL
 
 async function start() {
   await initDb()
