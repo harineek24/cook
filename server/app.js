@@ -269,23 +269,31 @@ app.post('/api/images/generate', async (req, res) => {
 
   // Try Pollinations AI image
   let aiUrl = null
+  let debug = { pollinations: 'not attempted' }
   try {
     const prompt = encodeURIComponent(
       `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
     )
-    const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
+    const pollinationsUrl = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
 
-    console.log(`Generating image for "${trimmed}" via Pollinations... URL: ${url}`)
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(25000),
+    debug.pollinations = 'fetching'
+    debug.url = pollinationsUrl
+    const t0 = Date.now()
+
+    const response = await fetch(pollinationsUrl, {
+      signal: AbortSignal.timeout(50000),
       redirect: 'follow',
     })
 
-    console.log(`Pollinations response: ${response.status} ${response.statusText} (type: ${response.type}, url: ${response.url})`)
+    const elapsed = Date.now() - t0
+    debug.pollinations = `responded ${response.status} in ${elapsed}ms`
+    debug.contentType = response.headers.get('content-type')
+    console.log(`Pollinations: ${response.status} in ${elapsed}ms, type=${debug.contentType}`)
 
     if (response.ok) {
       const arrayBuf = await response.arrayBuffer()
       const imgBuffer = Buffer.from(arrayBuf)
+      debug.bytes = imgBuffer.length
       console.log(`Received ${imgBuffer.length} bytes from Pollinations`)
 
       let pngBuffer = await sharp(imgBuffer)
@@ -296,27 +304,29 @@ app.post('/api/images/generate', async (req, res) => {
       try {
         pngBuffer = await removeBackground(pngBuffer)
       } catch (e) {
-        console.warn('Background removal skipped for generated image:', e.message)
+        console.warn('Background removal skipped:', e.message)
       }
 
       try {
         aiUrl = await saveImage(pngBuffer)
-        console.log(`Generated image for "${trimmed}" → ${aiUrl}`)
+        debug.pollinations = `saved → ${aiUrl} (${elapsed}ms)`
       } catch (dbErr) {
-        // DB save failed — return as data URL so the user still sees it
         console.warn(`DB save failed, using data URL:`, dbErr.message)
         aiUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
+        debug.pollinations = `db-failed, data URL (${elapsed}ms)`
       }
     } else {
       const body = await response.text().catch(() => '')
+      debug.pollinations = `error ${response.status}: ${body.slice(0, 100)}`
       console.warn(`Pollinations returned ${response.status}: ${body.slice(0, 200)}`)
     }
   } catch (err) {
+    debug.pollinations = `threw ${err.name}: ${err.message}`
     console.error(`AI generation failed for "${trimmed}":`, err.name, err.message)
   }
 
-  console.log(`Results for "${trimmed}": ai=${aiUrl ? 'yes' : 'no'}, emoji=${emoji}`)
-  res.json({ url: aiUrl, emoji, matched: true })
+  console.log(`Results for "${trimmed}": ai=${aiUrl ? 'yes' : 'no'}, emoji=${emoji}, debug=${JSON.stringify(debug)}`)
+  res.json({ url: aiUrl, emoji, matched: true, debug })
 })
 
 // Get custom ingredients
