@@ -255,6 +255,29 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
   }
 })
 
+// Helper: try fetching an image from a URL, return Buffer or null
+async function tryFetchImage(url, label, timeoutMs = 30000) {
+  const t0 = Date.now()
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'follow',
+    })
+    const elapsed = Date.now() - t0
+    const ct = res.headers.get('content-type') || ''
+    console.log(`${label}: ${res.status} in ${elapsed}ms, type=${ct}`)
+    if (res.ok && ct.startsWith('image/')) {
+      const buf = Buffer.from(await res.arrayBuffer())
+      console.log(`${label}: got ${buf.length} bytes`)
+      return { buffer: buf, elapsed, status: res.status }
+    }
+    const body = await res.text().catch(() => '')
+    return { error: `${res.status}: ${body.slice(0, 100)}`, elapsed }
+  } catch (err) {
+    return { error: `${err.name}: ${err.message}`, elapsed: Date.now() - t0 }
+  }
+}
+
 // Generate a transparent PNG for an ingredient name
 // Returns both AI image AND emoji so the user can choose
 app.post('/api/images/generate', async (req, res) => {
@@ -267,36 +290,27 @@ app.post('/api/images/generate', async (req, res) => {
   const codepoint = findEmojiCodepoint(trimmed)
   const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
 
-  // Try Pollinations AI image
+  // Try multiple Pollinations endpoints (different infra, different models)
   let aiUrl = null
-  let debug = { pollinations: 'not attempted' }
-  try {
-    const prompt = encodeURIComponent(
-      `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
-    )
-    const pollinationsUrl = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
+  const debug = {}
+  const prompt = encodeURIComponent(
+    `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
+  )
+  const seed = Date.now()
 
-    debug.pollinations = 'fetching'
-    debug.url = pollinationsUrl
-    const t0 = Date.now()
+  const endpoints = [
+    { label: 'gen', url: `https://gen.pollinations.ai/image/${prompt}?width=512&height=512&nologo=true&seed=${seed}&model=flux` },
+    { label: 'image', url: `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${seed}` },
+  ]
 
-    const response = await fetch(pollinationsUrl, {
-      signal: AbortSignal.timeout(50000),
-      redirect: 'follow',
-    })
+  for (const ep of endpoints) {
+    debug[ep.label] = 'trying...'
+    const result = await tryFetchImage(ep.url, ep.label)
 
-    const elapsed = Date.now() - t0
-    debug.pollinations = `responded ${response.status} in ${elapsed}ms`
-    debug.contentType = response.headers.get('content-type')
-    console.log(`Pollinations: ${response.status} in ${elapsed}ms, type=${debug.contentType}`)
+    if (result.buffer) {
+      debug[ep.label] = `ok ${result.buffer.length}b in ${result.elapsed}ms`
 
-    if (response.ok) {
-      const arrayBuf = await response.arrayBuffer()
-      const imgBuffer = Buffer.from(arrayBuf)
-      debug.bytes = imgBuffer.length
-      console.log(`Received ${imgBuffer.length} bytes from Pollinations`)
-
-      let pngBuffer = await sharp(imgBuffer)
+      let pngBuffer = await sharp(result.buffer)
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
         .png()
         .toBuffer()
@@ -309,20 +323,16 @@ app.post('/api/images/generate', async (req, res) => {
 
       try {
         aiUrl = await saveImage(pngBuffer)
-        debug.pollinations = `saved → ${aiUrl} (${elapsed}ms)`
+        debug[ep.label] += ` → saved`
       } catch (dbErr) {
         console.warn(`DB save failed, using data URL:`, dbErr.message)
         aiUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
-        debug.pollinations = `db-failed, data URL (${elapsed}ms)`
+        debug[ep.label] += ` → data-url`
       }
+      break // success, stop trying other endpoints
     } else {
-      const body = await response.text().catch(() => '')
-      debug.pollinations = `error ${response.status}: ${body.slice(0, 100)}`
-      console.warn(`Pollinations returned ${response.status}: ${body.slice(0, 200)}`)
+      debug[ep.label] = `fail: ${result.error}`
     }
-  } catch (err) {
-    debug.pollinations = `threw ${err.name}: ${err.message}`
-    console.error(`AI generation failed for "${trimmed}":`, err.name, err.message)
   }
 
   console.log(`Results for "${trimmed}": ai=${aiUrl ? 'yes' : 'no'}, emoji=${emoji}, debug=${JSON.stringify(debug)}`)
