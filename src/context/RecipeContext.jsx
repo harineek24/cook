@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { mockRecipes } from '../data/mockRecipes'
-import { API_URL } from '../config'
 
 const RecipeContext = createContext()
 
@@ -21,7 +20,7 @@ export function RecipeProvider({ children }) {
 
   // Fetch custom ingredients from backend on mount
   useEffect(() => {
-    fetch(`${API_URL}/api/ingredients`)
+    fetch('/api/ingredients')
       .then((r) => r.ok ? r.json() : [])
       .then(setCustomIngredients)
       .catch(() => setCustomIngredients([]))

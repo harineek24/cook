@@ -4,7 +4,6 @@ import { ingredients as defaultIngredients } from '../data/ingredients'
 import { useRecipes } from '../context/RecipeContext'
 import RecipeCard from '../components/RecipeCard'
 import RecipeForm from '../components/RecipeForm'
-import { resolveUrl } from '../config'
 
 export default function Recipes() {
   const { ingredientId } = useParams()
@@ -54,7 +53,7 @@ export default function Recipes() {
             </Link>
             <div className="flex items-center gap-2">
               {ingredient.custom && ingredient.image ? (
-                <img src={resolveUrl(ingredient.image)} alt={ingredient.name} className="w-8 h-8 object-contain" />
+                <img src={ingredient.image} alt={ingredient.name} className="w-8 h-8 object-contain" />
               ) : ingredient.custom && ingredient.emoji ? (
                 <span className="text-2xl sm:text-3xl">{ingredient.emoji}</span>
               ) : ingredient.custom ? (
@@ -110,7 +109,7 @@ export default function Recipes() {
         ) : (
           <div className="text-center py-20">
             {ingredient.custom && ingredient.image ? (
-              <img src={resolveUrl(ingredient.image)} alt={ingredient.name} className="w-20 h-20 object-contain mx-auto mb-6" />
+              <img src={ingredient.image} alt={ingredient.name} className="w-20 h-20 object-contain mx-auto mb-6" />
             ) : ingredient.custom && ingredient.emoji ? (
               <span className="text-7xl mb-6 block">{ingredient.emoji}</span>
             ) : ingredient.custom ? (

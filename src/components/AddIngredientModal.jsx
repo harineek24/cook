@@ -1,5 +1,4 @@
 import { useState, useRef, useCallback } from 'react'
-import { API_URL, resolveUrl } from '../config'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
   const [name, setName] = useState(initialName)
@@ -63,7 +62,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     setGeneratedEmoji(null)
 
     try {
-      const genRes = await fetch(`${API_URL}/api/images/generate`, {
+      const genRes = await fetch('/api/images/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim() }),
@@ -91,7 +90,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     setStatus('Saving...')
 
     try {
-      const res = await fetch(`${API_URL}/api/ingredients`, {
+      const res = await fetch('/api/ingredients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), imageUrl, emoji }),
@@ -120,7 +119,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       try {
         const formData = new FormData()
         formData.append('image', file)
-        const imgRes = await fetch(`${API_URL}/api/images/process`, { method: 'POST', body: formData })
+        const imgRes = await fetch('/api/images/process', { method: 'POST', body: formData })
         if (!imgRes.ok) {
           const err = await imgRes.json().catch(() => ({}))
           throw new Error(err.error || 'Image processing failed')
@@ -170,7 +169,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <div className="w-32 h-32 rounded-2xl bg-sand/30 flex items-center justify-center overflow-hidden border border-gray-100">
                 {generatedUrl ? (
                   <img
-                    src={resolveUrl(generatedUrl)}
+                    src={generatedUrl}
                     alt={name}
                     className="w-full h-full object-contain"
                   />
