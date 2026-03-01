@@ -2,33 +2,11 @@ import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
 import sharp from 'sharp'
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
-import { join, dirname } from 'path'
-import { fileURLToPath } from 'url'
 import crypto from 'crypto'
+import pool, { initDb } from './db.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
-
-const UPLOADS_DIR = join(__dirname, 'uploads')
-const DATA_FILE = join(__dirname, 'data.json')
-
-if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
-
-// ── Data helpers ────────────────────────────────────────────────
-function readData() {
-  if (!existsSync(DATA_FILE)) return { ingredients: [] }
-  try {
-    return JSON.parse(readFileSync(DATA_FILE, 'utf-8'))
-  } catch {
-    return { ingredients: [] }
-  }
-}
-
-function writeData(data) {
-  writeFileSync(DATA_FILE, JSON.stringify(data, null, 2))
-}
 
 // ── Emoji lookup for auto-image generation ──────────────────────
 // Maps lowercase ingredient names → Twemoji codepoints
@@ -94,9 +72,7 @@ const EMOJI_MAP = {
 
 function findEmojiCodepoint(name) {
   const lower = name.toLowerCase().trim()
-  // Exact match
   if (EMOJI_MAP[lower]) return EMOJI_MAP[lower]
-  // Partial match — check if any key is contained in the name or vice versa
   for (const [key, code] of Object.entries(EMOJI_MAP)) {
     if (lower.includes(key) || key.includes(lower)) return code
   }
@@ -114,7 +90,6 @@ async function removeBackground(inputBuffer) {
   if (channels !== 4) return inputBuffer
 
   const pixelCount = width * height
-  // Track which pixels have been visited and which are background
   const visited = new Uint8Array(pixelCount)
   const isBg = new Uint8Array(pixelCount)
 
@@ -125,13 +100,9 @@ async function removeBackground(inputBuffer) {
     return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
   }
 
-  // Flood fill from all edge pixels.
-  // A pixel is background if it's similar enough to its neighbor that
-  // initiated the fill (adaptive threshold based on local context).
   const tolerance = 40
   const queue = []
 
-  // Seed all edge pixels
   for (let x = 0; x < width; x++) {
     queue.push(idx(x, 0))
     queue.push(idx(x, height - 1))
@@ -141,13 +112,11 @@ async function removeBackground(inputBuffer) {
     queue.push(idx(width - 1, y))
   }
 
-  // Mark seeds
   for (const i of queue) {
     visited[i] = 1
     isBg[i] = 1
   }
 
-  // BFS flood fill
   const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]]
   let head = 0
   while (head < queue.length) {
@@ -171,23 +140,19 @@ async function removeBackground(inputBuffer) {
         isBg[ni] = 1
         queue.push(ni)
       } else {
-        // Mark as visited but NOT background (it's an edge/foreground pixel)
         visited[ni] = 1
       }
     }
   }
 
-  // Apply the mask: background pixels → transparent, with edge feathering
-  // First pass: count background neighbors for feathering
   const feather = new Float32Array(pixelCount)
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = idx(x, y)
       if (isBg[i]) {
-        feather[i] = 0 // fully transparent
+        feather[i] = 0
         continue
       }
-      // Count how many of the surrounding 5x5 pixels are background
       let bgCount = 0
       let total = 0
       for (let dy = -2; dy <= 2; dy++) {
@@ -199,12 +164,10 @@ async function removeBackground(inputBuffer) {
           if (isBg[idx(sx, sy)]) bgCount++
         }
       }
-      // If surrounded by some background, partially transparent (feathered edge)
       feather[i] = total > 0 ? 1 - (bgCount / total) : 1
     }
   }
 
-  // Apply alpha
   for (let i = 0; i < pixelCount; i++) {
     const alpha = Math.round(feather[i] * 255)
     data[i * 4 + 3] = Math.min(data[i * 4 + 3], alpha)
@@ -215,21 +178,36 @@ async function removeBackground(inputBuffer) {
     .toBuffer()
 }
 
-// Convert codepoint string to emoji character
 function codepointToEmoji(codepoint) {
   return codepoint.split('-').map(cp => String.fromCodePoint(parseInt(cp, 16))).join('')
 }
 
+// ── Database helpers ─────────────────────────────────────────────
+async function saveImage(pngBuffer) {
+  const id = crypto.randomUUID()
+  await pool.query(
+    'INSERT INTO images (id, data) VALUES ($1, $2)',
+    [id, pngBuffer]
+  )
+  return `/api/uploads/${id}`
+}
+
 // ── Middleware ───────────────────────────────────────────────────
-app.use(cors())
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(',')
+  : null
+
+app.use(cors(
+  allowedOrigins
+    ? { origin: allowedOrigins, credentials: true }
+    : undefined
+))
 app.use(express.json())
-app.use('/api/uploads', express.static(UPLOADS_DIR))
 
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    // Accept any image mimetype + HEIC/HEIF by extension
     if (file.mimetype.startsWith('image/') ||
         /\.(heic|heif|jpg|jpeg|png|webp|avif|tiff?)$/i.test(file.originalname)) {
       cb(null, true)
@@ -241,6 +219,21 @@ const upload = multer({
 
 // ── Routes ──────────────────────────────────────────────────────
 
+// Serve images from database
+app.get('/api/uploads/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT data FROM images WHERE id = $1', [req.params.id])
+    if (rows.length === 0) return res.status(404).json({ error: 'Image not found' })
+
+    res.set('Content-Type', 'image/png')
+    res.set('Cache-Control', 'public, max-age=31536000, immutable')
+    res.send(rows[0].data)
+  } catch (err) {
+    console.error('Image fetch error:', err)
+    res.status(500).json({ error: 'Failed to fetch image' })
+  }
+})
+
 // Process an uploaded image → transparent PNG
 app.post('/api/images/process', upload.single('image'), async (req, res) => {
   try {
@@ -248,11 +241,10 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
 
     console.log(`Processing image: ${req.file.originalname} (${req.file.mimetype}, ${req.file.size} bytes)`)
 
-    // Step 1: Auto-orient (EXIF rotation from phones) + convert to PNG
     let pngBuffer
     try {
       pngBuffer = await sharp(req.file.buffer)
-        .rotate()  // auto-orient based on EXIF
+        .rotate()
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
         .png()
         .toBuffer()
@@ -263,19 +255,15 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
       })
     }
 
-    // Step 2: Background removal
     try {
       pngBuffer = await removeBackground(pngBuffer)
     } catch (e) {
       console.warn('Background removal skipped:', e.message)
     }
 
-    // Step 3: Save
-    const filename = `${crypto.randomUUID()}.png`
-    writeFileSync(join(UPLOADS_DIR, filename), pngBuffer)
-
-    console.log(`Saved processed image: ${filename}`)
-    res.json({ url: `/api/uploads/${filename}` })
+    const url = await saveImage(pngBuffer)
+    console.log(`Saved processed image: ${url}`)
+    res.json({ url })
   } catch (err) {
     console.error('Image processing error:', err)
     res.status(500).json({ error: 'Failed to process image. Try a JPG or PNG.' })
@@ -283,14 +271,12 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
 })
 
 // Generate a transparent PNG for an ingredient name using AI (Pollinations.ai — free, no key)
-// Falls back to emoji match if image generation fails
 app.post('/api/images/generate', async (req, res) => {
   const { name } = req.body
   if (!name) return res.status(400).json({ error: 'Name is required' })
 
   const trimmed = name.trim()
 
-  // Try AI image generation first
   try {
     const prompt = encodeURIComponent(
       `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
@@ -304,30 +290,25 @@ app.post('/api/images/generate', async (req, res) => {
       const arrayBuf = await response.arrayBuffer()
       const imgBuffer = Buffer.from(arrayBuf)
 
-      // Convert to 256x256 PNG
       let pngBuffer = await sharp(imgBuffer)
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
         .png()
         .toBuffer()
 
-      // Remove background
       try {
         pngBuffer = await removeBackground(pngBuffer)
       } catch (e) {
         console.warn('Background removal skipped for generated image:', e.message)
       }
 
-      const filename = `gen-${crypto.randomUUID()}.png`
-      writeFileSync(join(UPLOADS_DIR, filename), pngBuffer)
-
-      console.log(`Generated image for "${trimmed}" → ${filename}`)
-      return res.json({ url: `/api/uploads/${filename}`, emoji: null, matched: true })
+      const savedUrl = await saveImage(pngBuffer)
+      console.log(`Generated image for "${trimmed}" → ${savedUrl}`)
+      return res.json({ url: savedUrl, emoji: null, matched: true })
     }
   } catch (err) {
     console.warn(`AI generation failed for "${trimmed}":`, err.message)
   }
 
-  // Fallback: emoji match
   const codepoint = findEmojiCodepoint(trimmed)
   if (codepoint) {
     const emoji = codepointToEmoji(codepoint)
@@ -339,45 +320,77 @@ app.post('/api/images/generate', async (req, res) => {
 })
 
 // Get custom ingredients
-app.get('/api/ingredients', (_req, res) => {
-  const data = readData()
-  res.json(data.ingredients)
+app.get('/api/ingredients', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, image, emoji, custom FROM ingredients ORDER BY created_at DESC'
+    )
+    res.json(rows)
+  } catch (err) {
+    console.error('Fetch ingredients error:', err)
+    res.status(500).json({ error: 'Failed to fetch ingredients' })
+  }
 })
 
 // Add a custom ingredient
-app.post('/api/ingredients', (req, res) => {
+app.post('/api/ingredients', async (req, res) => {
   const { name, imageUrl, emoji } = req.body
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' })
 
-  const data = readData()
-  const ingredient = {
-    id: name.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
-    name: name.trim(),
-    image: imageUrl || null,
-    emoji: emoji || null,
-    custom: true,
+  try {
+    const ingredient = {
+      id: name.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
+      name: name.trim(),
+      image: imageUrl || null,
+      emoji: emoji || null,
+      custom: true,
+    }
+
+    await pool.query(
+      'INSERT INTO ingredients (id, name, image, emoji, custom) VALUES ($1, $2, $3, $4, $5)',
+      [ingredient.id, ingredient.name, ingredient.image, ingredient.emoji, ingredient.custom]
+    )
+
+    res.status(201).json(ingredient)
+  } catch (err) {
+    console.error('Add ingredient error:', err)
+    res.status(500).json({ error: 'Failed to add ingredient' })
   }
-
-  data.ingredients.push(ingredient)
-  writeData(data)
-
-  res.status(201).json(ingredient)
 })
 
 // Delete a custom ingredient
-app.delete('/api/ingredients/:id', (req, res) => {
-  const data = readData()
-  data.ingredients = data.ingredients.filter((i) => i.id !== req.params.id)
-  writeData(data)
-  res.json({ ok: true })
+app.delete('/api/ingredients/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM ingredients WHERE id = $1', [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Delete ingredient error:', err)
+    res.status(500).json({ error: 'Failed to delete ingredient' })
+  }
 })
 
-// Express error handler (catches multer errors, etc.)
+// Health check
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok' })
+})
+
+// Express error handler
 app.use((err, _req, res, _next) => {
   console.error('Server error:', err.message)
   res.status(500).json({ error: err.message || 'Internal server error' })
 })
 
-app.listen(PORT, () => {
-  console.log(`Cook API server running on http://localhost:${PORT}`)
+// ── Start ───────────────────────────────────────────────────────
+async function start() {
+  await initDb()
+  console.log('Database tables initialized')
+
+  app.listen(PORT, () => {
+    console.log(`Cook API server running on http://localhost:${PORT}`)
+  })
+}
+
+start().catch((err) => {
+  console.error('Failed to start server:', err)
+  process.exit(1)
 })

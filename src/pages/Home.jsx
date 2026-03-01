@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ingredients as defaultIngredients } from '../data/ingredients'
 import { useRecipes } from '../context/RecipeContext'
 import AddIngredientModal from '../components/AddIngredientModal'
+import { resolveUrl } from '../config'
 
 function seededRandom(seed) {
   const x = Math.sin(seed * 9301 + 49297) * 233280
@@ -124,7 +125,7 @@ export default function Home() {
         >
           {item.custom && item.image ? (
             <img
-              src={item.image}
+              src={resolveUrl(item.image)}
               alt={item.name}
               className="w-12 h-12 sm:w-14 sm:h-14 object-contain drop-shadow-md"
               draggable={false}
@@ -203,7 +204,7 @@ export default function Home() {
                                      transition-colors text-left"
                           >
                             {item.custom && item.image ? (
-                              <img src={item.image} alt="" className="w-8 h-8 object-contain" />
+                              <img src={resolveUrl(item.image)} alt="" className="w-8 h-8 object-contain" />
                             ) : item.custom && item.emoji ? (
                               <span className="text-2xl">{item.emoji}</span>
                             ) : item.custom ? (
