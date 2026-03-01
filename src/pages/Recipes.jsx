@@ -1,16 +1,21 @@
 import { useParams, Link } from 'react-router-dom'
-import { useState } from 'react'
-import { ingredients } from '../data/ingredients'
+import { useState, useMemo } from 'react'
+import { ingredients as defaultIngredients } from '../data/ingredients'
 import { useRecipes } from '../context/RecipeContext'
 import RecipeCard from '../components/RecipeCard'
 import RecipeForm from '../components/RecipeForm'
 
 export default function Recipes() {
   const { ingredientId } = useParams()
-  const { getRecipesByIngredient, addRecipe } = useRecipes()
+  const { getRecipesByIngredient, addRecipe, customIngredients } = useRecipes()
   const [showForm, setShowForm] = useState(false)
 
-  const ingredient = ingredients.find((i) => i.id === ingredientId)
+  const ingredient = useMemo(
+    () =>
+      defaultIngredients.find((i) => i.id === ingredientId) ||
+      customIngredients.find((i) => i.id === ingredientId),
+    [ingredientId, customIngredients],
+  )
   const recipes = getRecipesByIngredient(ingredientId)
 
   if (!ingredient) {
@@ -47,7 +52,11 @@ export default function Recipes() {
               </svg>
             </Link>
             <div className="flex items-center gap-2">
-              <span className="text-2xl sm:text-3xl">{ingredient.emoji}</span>
+              {ingredient.custom ? (
+                <img src={ingredient.image} alt={ingredient.name} className="w-8 h-8 object-contain" />
+              ) : (
+                <span className="text-2xl sm:text-3xl">{ingredient.emoji}</span>
+              )}
               <h1 className="text-lg sm:text-xl font-semibold text-brown">
                 {ingredient.name} Recipes
               </h1>
@@ -92,7 +101,11 @@ export default function Recipes() {
           </div>
         ) : (
           <div className="text-center py-20">
-            <span className="text-7xl mb-6 block">{ingredient.emoji}</span>
+            {ingredient.custom ? (
+              <img src={ingredient.image} alt={ingredient.name} className="w-20 h-20 object-contain mx-auto mb-6" />
+            ) : (
+              <span className="text-7xl mb-6 block">{ingredient.emoji}</span>
+            )}
             <p className="text-brown-light text-lg mb-2">
               No recipes yet for {ingredient.name}
             </p>
