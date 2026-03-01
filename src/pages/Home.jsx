@@ -19,7 +19,7 @@ function generatePositions(count) {
       top = 3 + seededRandom(i * 17 + attempts * 31 + 5) * 92
       left = 2 + seededRandom(i * 23 + attempts * 37 + 11) * 94
       attempts++
-    } while (top > 28 && top < 72 && left > 15 && left < 85 && attempts < 100)
+    } while (top > 38 && top < 62 && left > 20 && left < 80 && attempts < 100)
     positions.push({ top, left })
   }
   return positions
@@ -147,14 +147,19 @@ export default function Home() {
       {/* Center question */}
       <div className="relative z-20 flex items-center justify-center min-h-screen pointer-events-none px-4">
         <div className="text-center pointer-events-auto">
-          <div className="bg-cream/70 backdrop-blur-md rounded-3xl px-8 md:px-16 py-10 md:py-14 shadow-lg shadow-peach/10">
+          <div>
             <h1 className="font-display text-5xl md:text-7xl lg:text-8xl font-bold text-brown leading-tight">
-              What&apos;s in your
+              <span className="bg-cream/70 backdrop-blur-sm rounded-xl px-4 py-1 inline-block shadow-sm">
+                What&apos;s in your
+              </span>
               <br />
-              <span className="text-coral italic">fridge</span>
-              <span className="text-peach">?</span>
+              <span className="bg-cream/70 backdrop-blur-sm rounded-xl px-4 py-1 inline-block shadow-sm mt-1">
+                <span className="text-coral italic">fridge</span>
+                <span className="text-peach">?</span>
+              </span>
             </h1>
-            <p className="mt-4 text-brown-light text-base md:text-lg max-w-lg mx-auto leading-relaxed">
+            <p className="mt-4 text-brown-light text-sm md:text-base max-w-md mx-auto leading-relaxed
+                         bg-cream/60 backdrop-blur-sm rounded-lg px-4 py-2 inline-block">
               Tap any ingredient to discover recipes, share your own,
               or record a voice recipe
             </p>
