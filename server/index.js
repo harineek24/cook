@@ -11,8 +11,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
 const PORT = process.env.PORT || 3001
 
-const UPLOADS_DIR = join(__dirname, 'uploads')
-const DATA_FILE = join(__dirname, 'data.json')
+const IS_VERCEL = !!process.env.VERCEL
+const UPLOADS_DIR = IS_VERCEL ? join('/tmp', 'uploads') : join(__dirname, 'uploads')
+const DATA_FILE = IS_VERCEL ? join('/tmp', 'data.json') : join(__dirname, 'data.json')
 
 if (!existsSync(UPLOADS_DIR)) mkdirSync(UPLOADS_DIR, { recursive: true })
 
@@ -391,6 +392,10 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Internal server error' })
 })
 
-app.listen(PORT, () => {
-  console.log(`Cook API server running on http://localhost:${PORT}`)
-})
+if (!IS_VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Cook API server running on http://localhost:${PORT}`)
+  })
+}
+
+export default app
