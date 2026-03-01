@@ -53,6 +53,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     handleFile(e.dataTransfer.files[0])
   }
 
+  // Which option the user picked: 'ai' or 'emoji'
+  const [selectedOption, setSelectedOption] = useState(null)
+
   // Generate an AI image (or regenerate)
   const handleGenerate = async () => {
     setProcessing(true)
@@ -60,6 +63,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     setStatus('Generating image...')
     setGeneratedUrl(null)
     setGeneratedEmoji(null)
+    setSelectedOption(null)
 
     try {
       const genRes = await fetch('/api/images/generate', {
@@ -70,11 +74,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       if (!genRes.ok) throw new Error('Generation failed')
       const genData = await genRes.json()
 
-      if (genData.url) {
-        setGeneratedUrl(genData.url)
-      } else if (genData.emoji) {
-        setGeneratedEmoji(genData.emoji)
-      }
+      setGeneratedUrl(genData.url || null)
+      setGeneratedEmoji(genData.emoji || null)
+      // Default to AI image if available, otherwise emoji
+      setSelectedOption(genData.url ? 'ai' : 'emoji')
     } catch {
       setError('Image generation failed. You can try again or add without an image.')
     } finally {
@@ -162,32 +165,49 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         </div>
 
         {showingGenerated ? (
-          /* ── Generated image preview ── */
+          /* ── Generated image preview — pick AI or emoji ── */
           <div className="px-6 pb-6">
-            <div className="flex flex-col items-center gap-4">
-              {/* Preview image */}
-              <div className="w-32 h-32 rounded-2xl bg-sand/30 flex items-center justify-center overflow-hidden border border-gray-100">
-                {generatedUrl ? (
-                  <img
-                    src={generatedUrl}
-                    alt={name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : generatedEmoji ? (
-                  <span className="text-6xl">{generatedEmoji}</span>
-                ) : null}
-              </div>
+            <p className="text-sm text-brown font-medium text-center mb-1">{name.trim()}</p>
+            <p className="text-xs text-brown-light/60 text-center mb-4">Choose an image for this ingredient</p>
 
-              <p className="text-sm text-brown font-medium">{name.trim()}</p>
-              <p className="text-xs text-brown-light/60">
-                {generatedUrl ? 'AI-generated image' : 'Emoji match'}
-              </p>
-
-              {/* Error */}
-              {error && (
-                <p className="text-red-500 text-sm text-center">{error}</p>
+            {/* Side-by-side options */}
+            <div className="flex justify-center gap-4">
+              {generatedUrl && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('ai')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'ai'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center overflow-hidden">
+                    <img src={generatedUrl} alt={name} className="w-full h-full object-contain" />
+                  </div>
+                  <span className="text-xs font-medium text-brown">AI Image</span>
+                </button>
+              )}
+              {generatedEmoji && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('emoji')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'emoji'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center">
+                    <span className="text-5xl">{generatedEmoji}</span>
+                  </div>
+                  <span className="text-xs font-medium text-brown">Emoji</span>
+                </button>
               )}
             </div>
+
+            {/* Error */}
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
 
             {/* Actions */}
             <div className="mt-6 flex justify-center gap-3">
@@ -221,8 +241,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="button"
-                onClick={() => handleSave(generatedUrl, generatedEmoji)}
-                disabled={processing}
+                onClick={() => {
+                  const useAi = selectedOption === 'ai'
+                  handleSave(useAi ? generatedUrl : null, useAi ? null : generatedEmoji)
+                }}
+                disabled={processing || !selectedOption}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >

@@ -256,12 +256,19 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
 })
 
 // Generate a transparent PNG for an ingredient name
+// Returns both AI image AND emoji so the user can choose
 app.post('/api/images/generate', async (req, res) => {
   const { name } = req.body
   if (!name) return res.status(400).json({ error: 'Name is required' })
 
   const trimmed = name.trim()
 
+  // Get emoji match (always attempt)
+  const codepoint = findEmojiCodepoint(trimmed)
+  const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
+
+  // Try Pollinations AI image
+  let aiUrl = null
   try {
     const prompt = encodeURIComponent(
       `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
@@ -292,9 +299,8 @@ app.post('/api/images/generate', async (req, res) => {
         console.warn('Background removal skipped for generated image:', e.message)
       }
 
-      const savedUrl = await saveImage(pngBuffer)
-      console.log(`Generated image for "${trimmed}" → ${savedUrl}`)
-      return res.json({ url: savedUrl, emoji: null, matched: true })
+      aiUrl = await saveImage(pngBuffer)
+      console.log(`Generated image for "${trimmed}" → ${aiUrl}`)
     } else {
       const body = await response.text().catch(() => '')
       console.warn(`Pollinations returned ${response.status}: ${body.slice(0, 200)}`)
@@ -303,16 +309,8 @@ app.post('/api/images/generate', async (req, res) => {
     console.error(`AI generation failed for "${trimmed}":`, err.name, err.message)
   }
 
-  const codepoint = findEmojiCodepoint(trimmed)
-  if (codepoint) {
-    const emoji = codepointToEmoji(codepoint)
-    console.log(`Emoji fallback for "${trimmed}" → ${emoji}`)
-    return res.json({ url: null, emoji, matched: true })
-  }
-
-  // Ultimate fallback: generic food emoji so every ingredient gets something
-  console.log(`No match for "${trimmed}", using generic fallback`)
-  res.json({ url: null, emoji: '\u{1F372}', matched: true })
+  console.log(`Results for "${trimmed}": ai=${aiUrl ? 'yes' : 'no'}, emoji=${emoji}`)
+  res.json({ url: aiUrl, emoji, matched: true })
 })
 
 // Get custom ingredients
