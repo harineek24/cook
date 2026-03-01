@@ -299,8 +299,14 @@ app.post('/api/images/generate', async (req, res) => {
         console.warn('Background removal skipped for generated image:', e.message)
       }
 
-      aiUrl = await saveImage(pngBuffer)
-      console.log(`Generated image for "${trimmed}" → ${aiUrl}`)
+      try {
+        aiUrl = await saveImage(pngBuffer)
+        console.log(`Generated image for "${trimmed}" → ${aiUrl}`)
+      } catch (dbErr) {
+        // DB save failed — return as data URL so the user still sees it
+        console.warn(`DB save failed, using data URL:`, dbErr.message)
+        aiUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
+      }
     } else {
       const body = await response.text().catch(() => '')
       console.warn(`Pollinations returned ${response.status}: ${body.slice(0, 200)}`)
