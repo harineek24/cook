@@ -268,12 +268,18 @@ app.post('/api/images/generate', async (req, res) => {
     )
     const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
 
-    console.log(`Generating image for "${trimmed}" via Pollinations...`)
-    const response = await fetch(url, { signal: AbortSignal.timeout(25000) })
+    console.log(`Generating image for "${trimmed}" via Pollinations... URL: ${url}`)
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(25000),
+      redirect: 'follow',
+    })
+
+    console.log(`Pollinations response: ${response.status} ${response.statusText} (type: ${response.type}, url: ${response.url})`)
 
     if (response.ok) {
       const arrayBuf = await response.arrayBuffer()
       const imgBuffer = Buffer.from(arrayBuf)
+      console.log(`Received ${imgBuffer.length} bytes from Pollinations`)
 
       let pngBuffer = await sharp(imgBuffer)
         .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
@@ -289,9 +295,12 @@ app.post('/api/images/generate', async (req, res) => {
       const savedUrl = await saveImage(pngBuffer)
       console.log(`Generated image for "${trimmed}" → ${savedUrl}`)
       return res.json({ url: savedUrl, emoji: null, matched: true })
+    } else {
+      const body = await response.text().catch(() => '')
+      console.warn(`Pollinations returned ${response.status}: ${body.slice(0, 200)}`)
     }
   } catch (err) {
-    console.warn(`AI generation failed for "${trimmed}":`, err.message)
+    console.error(`AI generation failed for "${trimmed}":`, err.name, err.message)
   }
 
   const codepoint = findEmojiCodepoint(trimmed)
