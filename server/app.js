@@ -295,7 +295,7 @@ app.post('/api/images/generate', async (req, res) => {
 
   const endpoints = [
     // Pollinations AI generation (requires API key)
-    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://gen.pollinations.ai/image/${prompt}?model=flux&width=256&height=256&nologo=true&seed=${Date.now()}`, timeoutMs: 30000, headers: { 'Authorization': `Bearer ${POLLINATIONS_KEY}` } }] : []),
+    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://gen.pollinations.ai/image/${prompt}?model=flux&key=${POLLINATIONS_KEY}`, timeoutMs: 30000 }] : []),
     // Free CDN fallbacks
     { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
     { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
