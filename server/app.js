@@ -381,6 +381,71 @@ app.delete('/api/ingredients/:id', async (req, res) => {
   }
 })
 
+// ── Audio transcription ─────────────────────────────────────────
+
+// Transcribe audio via Pollinations Whisper, then ask LLM to structure it
+app.post('/api/audio/transcribe', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No audio file uploaded' })
+
+    // Step 1: Transcribe with Pollinations Whisper
+    const form = new FormData()
+    form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), 'audio.webm')
+    form.append('model', 'whisper-large-v3')
+    form.append('response_format', 'json')
+
+    const headers = {}
+    if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
+
+    const whisperRes = await fetch('https://gen.pollinations.ai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers,
+      body: form,
+      signal: AbortSignal.timeout(60000),
+    })
+
+    if (!whisperRes.ok) {
+      const errText = await whisperRes.text().catch(() => '')
+      console.error('Whisper error:', whisperRes.status, errText.slice(0, 200))
+      return res.status(502).json({ error: 'Transcription failed' })
+    }
+
+    const { text: rawTranscript } = await whisperRes.json()
+    if (!rawTranscript?.trim()) return res.json({ transcript: '', structured: '' })
+
+    // Step 2: Ask LLM to format into numbered ingredients + instructions
+    const chatHeaders = { 'Content-Type': 'application/json' }
+    if (POLLINATIONS_KEY) chatHeaders['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
+
+    const chatRes = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: chatHeaders,
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are a recipe formatter. Given a raw spoken recipe transcript, extract and format it into two numbered lists: "Ingredients:" (numbered 1, 2, 3...) and "Instructions:" (numbered 1, 2, 3...). Keep it concise. Only output the formatted recipe, nothing else.',
+          },
+          { role: 'user', content: rawTranscript },
+        ],
+      }),
+    })
+
+    let structured = rawTranscript
+    if (chatRes.ok) {
+      const chatData = await chatRes.json()
+      structured = chatData.choices?.[0]?.message?.content || rawTranscript
+    }
+
+    res.json({ transcript: rawTranscript, structured })
+  } catch (err) {
+    console.error('Transcription error:', err.message)
+    res.status(500).json({ error: 'Transcription failed' })
+  }
+})
+
 // ── Recipes ─────────────────────────────────────────────────────
 
 // Get all recipes
