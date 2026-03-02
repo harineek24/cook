@@ -106,6 +106,19 @@ const upload = multer({
   },
 })
 
+const uploadAudio = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith('audio/') || file.mimetype === 'video/webm' ||
+        /\.(webm|mp3|mp4|m4a|wav|ogg|mpeg|mpga)$/i.test(file.originalname)) {
+      cb(null, true)
+    } else {
+      cb(new Error('Only audio files are allowed'))
+    }
+  },
+})
+
 // ── Routes ──────────────────────────────────────────────────────
 
 // Serve images from database
@@ -384,7 +397,7 @@ app.delete('/api/ingredients/:id', async (req, res) => {
 // ── Audio transcription ─────────────────────────────────────────
 
 // Transcribe audio via Pollinations Whisper, then ask LLM to structure it
-app.post('/api/audio/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/audio/transcribe', uploadAudio.single('audio'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No audio file uploaded' })
 
