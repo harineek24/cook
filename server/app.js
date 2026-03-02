@@ -7,6 +7,7 @@ import pool from './db.js'
 
 const app = express()
 const POLLINATIONS_KEY = process.env.POLLINATIONS_API_KEY || ''
+console.log(`Pollinations API key: ${POLLINATIONS_KEY ? `loaded (${POLLINATIONS_KEY.slice(0, 6)}...)` : 'NOT SET'}`)
 
 // ── Emoji lookup for auto-image generation ──────────────────────
 const EMOJI_MAP = {
@@ -196,7 +197,7 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
     // Call Pollinations text API with a vision-capable model
     const headers = { 'Content-Type': 'application/json' }
     if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
-    const apiRes = await fetch('https://text.pollinations.ai/openai', {
+    const apiRes = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
       method: 'POST',
       headers,
       signal: AbortSignal.timeout(30000),
@@ -220,25 +221,33 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
       }),
     })
 
+    console.log(`Vision API response status: ${apiRes.status}`)
+    console.log(`Vision API response headers:`, Object.fromEntries(apiRes.headers.entries()))
+
+    const rawText = await apiRes.text()
+    console.log(`Vision API raw response (first 500 chars): ${rawText.slice(0, 500)}`)
+
     if (!apiRes.ok) {
-      const body = await apiRes.text().catch(() => '')
-      console.error(`Vision API error: ${apiRes.status} ${body.slice(0, 200)}`)
+      console.error(`Vision API error: ${apiRes.status} ${rawText.slice(0, 200)}`)
       return res.status(502).json({ error: 'Image recognition service unavailable' })
     }
 
-    const text = await apiRes.text()
-    // Pollinations may return raw text or JSON
+    // Pollinations may return raw text or JSON (OpenAI-compatible format)
     let name
     try {
-      const json = JSON.parse(text)
-      name = json.choices?.[0]?.message?.content || json.text || text
+      const json = JSON.parse(rawText)
+      console.log(`Vision API parsed JSON keys: ${Object.keys(json)}`)
+      name = json.choices?.[0]?.message?.content || json.text || rawText
     } catch {
-      name = text
+      name = rawText
     }
+
+    console.log(`Vision API extracted name: "${name}"`)
 
     // Clean up the response
     name = name.replace(/^["'\s]+|["'\s]+$/g, '').trim()
     if (!name || name.toLowerCase() === 'unknown') {
+      console.log(`Vision API returned unknown or empty, returning identified: false`)
       return res.json({ name: null, identified: false })
     }
 
