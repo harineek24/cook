@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import pool from './db.js'
 
 const app = express()
+const POLLINATIONS_KEY = process.env.POLLINATIONS_API_KEY || ''
 
 // ── Emoji lookup for auto-image generation ──────────────────────
 const EMOJI_MAP = {
@@ -192,9 +193,11 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
     const dataUrl = `data:image/jpeg;base64,${base64}`
 
     // Call Pollinations text API with a vision-capable model
+    const headers = { 'Content-Type': 'application/json' }
+    if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
     const apiRes = await fetch('https://text.pollinations.ai/', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
         model: 'openai',
@@ -266,9 +269,13 @@ app.post('/api/images/generate', async (req, res) => {
   const codepoint = findEmojiCodepoint(trimmed)
   const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
 
-  // Try multiple image sources (all free, no key needed)
+  // Try multiple image sources
   let aiUrl = null
   const debug = {}
+
+  const prompt = encodeURIComponent(
+    `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
+  )
 
   // Spoonacular CDN uses lowercase hyphenated names: "tomato.jpg", "olive-oil.jpg"
   const spoonName = trimmed.toLowerCase().replace(/\s+/g, '-')
@@ -276,14 +283,12 @@ app.post('/api/images/generate', async (req, res) => {
   // TheMealDB uses capitalized words: "Tomato.png", "Olive Oil.png"
   const mealDbName = trimmed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('%20')
 
-  // Also try just the first/main word for TheMealDB (e.g. "Tomato" from "diced tomatoes")
-  const mainWord = trimmed.split(/\s+/).pop()
-  const mealDbSimple = mainWord.charAt(0).toUpperCase() + mainWord.slice(1).toLowerCase()
-
   const endpoints = [
+    // Pollinations AI generation (requires API key)
+    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://gen.pollinations.ai/image/${prompt}?model=flux&key=${POLLINATIONS_KEY}`, timeoutMs: 30000 }] : []),
+    // Free CDN fallbacks
     { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
     { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
-    ...(mealDbSimple !== mealDbName ? [{ label: 'mealdb2', url: `https://www.themealdb.com/images/ingredients/${mealDbSimple}.png`, timeoutMs: 8000 }] : []),
   ]
 
   for (const ep of endpoints) {
