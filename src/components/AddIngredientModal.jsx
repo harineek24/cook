@@ -16,11 +16,20 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
+  // Fetch fresh custom ingredients from DB when modal opens
+  const [freshIngredients, setFreshIngredients] = useState(customIngredients)
+  useEffect(() => {
+    fetch('/api/ingredients')
+      .then((r) => r.ok ? r.json() : [])
+      .then(setFreshIngredients)
+      .catch(() => {})
+  }, [])
+
   // Match the entered name against existing ingredients (fuzzy/contains match)
   const matchingIngredient = useMemo(() => {
     if (!name.trim()) return null
     const normalized = name.trim().toLowerCase()
-    const all = [...defaultIngredients, ...customIngredients]
+    const all = [...defaultIngredients, ...freshIngredients]
     // Prefer exact match first
     const exact = all.find(i => i.name.toLowerCase() === normalized)
     if (exact) return exact
@@ -29,7 +38,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     return all.find(i =>
       normalized.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(normalized)
     )
-  }, [name, customIngredients])
+  }, [name, freshIngredients])
 
   const hasRecipes = useMemo(() => {
     if (!matchingIngredient) return false
