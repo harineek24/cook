@@ -197,7 +197,7 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
     // Call Pollinations text API with a vision-capable model
     const headers = { 'Content-Type': 'application/json' }
     if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
-    const apiRes = await fetch('https://text.pollinations.ai/openai', {
+    const apiRes = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
       method: 'POST',
       headers,
       signal: AbortSignal.timeout(30000),
@@ -295,7 +295,7 @@ app.post('/api/images/generate', async (req, res) => {
 
   const endpoints = [
     // Pollinations AI generation (requires API key)
-    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://image.pollinations.ai/prompt/${prompt}?model=flux&width=256&height=256&nologo=true&seed=${Date.now()}&key=${POLLINATIONS_KEY}`, timeoutMs: 30000 }] : []),
+    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://gen.pollinations.ai/image/${prompt}?model=flux&width=256&height=256&nologo=true&seed=${Date.now()}`, timeoutMs: 30000, headers: { 'Authorization': `Bearer ${POLLINATIONS_KEY}` } }] : []),
     // Free CDN fallbacks
     { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
     { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
