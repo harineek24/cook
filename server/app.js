@@ -381,6 +381,52 @@ app.delete('/api/ingredients/:id', async (req, res) => {
   }
 })
 
+// ── Recipes ─────────────────────────────────────────────────────
+
+// Get all recipes
+app.get('/api/recipes', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, ingredient_id AS "ingredientId", title, author, cook_time AS "cookTime",
+              servings, content, audio_url AS "audioUrl", transcription,
+              created_at AS "createdAt"
+       FROM recipes ORDER BY created_at DESC`
+    )
+    res.json(rows)
+  } catch (err) {
+    console.error('Fetch recipes error:', err)
+    res.status(500).json({ error: 'Failed to fetch recipes' })
+  }
+})
+
+// Add a recipe
+app.post('/api/recipes', async (req, res) => {
+  const { ingredientId, title, author, cookTime, servings, content, audioUrl, transcription } = req.body
+  if (!ingredientId || !title?.trim() || !content?.trim()) {
+    return res.status(400).json({ error: 'ingredientId, title, and content are required' })
+  }
+
+  try {
+    const id = Date.now().toString()
+    await pool.query(
+      `INSERT INTO recipes (id, ingredient_id, title, author, cook_time, servings, content, audio_url, transcription)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, ingredientId, title.trim(), (author || 'Anonymous').trim(), cookTime || 'N/A', parseInt(servings) || 1, content.trim(), audioUrl || null, transcription || null]
+    )
+
+    const { rows } = await pool.query(
+      `SELECT id, ingredient_id AS "ingredientId", title, author, cook_time AS "cookTime",
+              servings, content, audio_url AS "audioUrl", transcription,
+              created_at AS "createdAt"
+       FROM recipes WHERE id = $1`, [id]
+    )
+    res.status(201).json(rows[0])
+  } catch (err) {
+    console.error('Add recipe error:', err)
+    res.status(500).json({ error: 'Failed to add recipe' })
+  }
+})
+
 // Health check
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok' })
