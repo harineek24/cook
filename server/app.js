@@ -202,7 +202,7 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
       headers,
       signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
-        model: 'openai',
+        model: 'gemini',
         messages: [
           {
             role: 'user',
