@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useRecipes } from '../context/RecipeContext'
+import { ingredients as defaultIngredients } from '../data/ingredients'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
+  const navigate = useNavigate()
+  const { customIngredients } = useRecipes()
+
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
@@ -13,6 +19,21 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   // Generated image preview state
   const [generatedUrl, setGeneratedUrl] = useState(null)
   const [generatedEmoji, setGeneratedEmoji] = useState(null)
+
+  // Cache processed file URL so we don't re-upload on name edits
+  const [processedFileUrl, setProcessedFileUrl] = useState(null)
+
+  // Check if ingredient already exists in the fridge (by name)
+  const allIngredients = useMemo(
+    () => [...defaultIngredients, ...customIngredients],
+    [customIngredients],
+  )
+
+  const existingIngredient = useMemo(() => {
+    const lower = name.trim().toLowerCase()
+    if (!lower) return null
+    return allIngredients.find(i => i.name.toLowerCase() === lower) || null
+  }, [name, allIngredients])
 
   // Show preview for initialFile if provided
   useEffect(() => {
@@ -106,12 +127,25 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     }
   }
 
+  // Go back to the form to edit the name
+  const handleEditName = () => {
+    setGeneratedUrl(null)
+    setGeneratedEmoji(null)
+    // Keep processedFileUrl cached so we don't re-upload
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!name.trim()) return
 
     if (file) {
-      // User provided an image — upload, process, save directly
+      // If we already processed this file, just show preview again
+      if (processedFileUrl) {
+        setGeneratedUrl(processedFileUrl)
+        return
+      }
+
+      // User provided an image — upload and process, then show preview
       setProcessing(true)
       setError(null)
       setStatus('Converting to transparent PNG...')
@@ -125,9 +159,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           throw new Error(err.error || 'Image processing failed')
         }
         const imgData = await imgRes.json()
-        await handleSave(imgData.url, null)
+        setProcessedFileUrl(imgData.url)
+        setGeneratedUrl(imgData.url)
       } catch (err) {
         setError(err.message)
+      } finally {
         setProcessing(false)
         setStatus('')
       }
@@ -148,7 +184,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <h2 className="text-lg font-display font-semibold text-brown">
-            {showingGenerated ? 'Preview' : 'Add an Ingredient'}
+            {showingGenerated
+              ? (existingIngredient ? 'Ingredient Found' : 'Preview')
+              : 'Add an Ingredient'}
           </h2>
           <button
             type="button"
@@ -190,51 +228,91 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
             </div>
 
             {/* Actions */}
-            <div className="mt-6 flex justify-center gap-3">
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={processing}
-                className="px-5 py-2.5 text-sm font-medium rounded-full
-                           border border-gray-200 text-brown-light hover:text-brown
-                           hover:border-gray-300 transition-all
-                           disabled:opacity-40 disabled:cursor-not-allowed
-                           flex items-center gap-2"
-              >
-                {processing ? (
-                  <>
+            {existingIngredient ? (
+              /* Ingredient already in fridge */
+              <div className="mt-5">
+                <p className="text-sm text-center text-green-600 font-medium mb-4">
+                  This ingredient is already in your fridge!
+                </p>
+                <div className="flex justify-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleEditName}
+                    className="px-5 py-2.5 text-sm font-medium rounded-full
+                               border border-gray-200 text-brown-light hover:text-brown
+                               hover:border-gray-300 transition-all
+                               flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    No, edit name
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      navigate(`/recipes/${existingIngredient.id}`)
+                    }}
+                    className="btn-primary text-sm flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    Yes, see recipes
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* New ingredient — regenerate / add */
+              <div className="mt-6 flex justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={processing}
+                  className="px-5 py-2.5 text-sm font-medium rounded-full
+                             border border-gray-200 text-brown-light hover:text-brown
+                             hover:border-gray-300 transition-all
+                             disabled:opacity-40 disabled:cursor-not-allowed
+                             flex items-center gap-2"
+                >
+                  {processing ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                        <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      Regenerate
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSave(generatedUrl, generatedEmoji)}
+                  disabled={processing}
+                  className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                             flex items-center gap-2"
+                >
+                  {processing && (
                     <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
                       <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                     </svg>
-                    Generating...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    Regenerate
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSave(generatedUrl, generatedEmoji)}
-                disabled={processing}
-                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
-                           flex items-center gap-2"
-              >
-                {processing && (
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                  </svg>
-                )}
-                {processing ? 'Saving...' : 'Add to Fridge'}
-              </button>
-            </div>
+                  )}
+                  {processing ? 'Saving...' : 'Add to Fridge'}
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           /* ── Normal form ── */
@@ -340,7 +418,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? 'Add to Fridge' : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? 'Continue' : 'Generate Preview'}
               </button>
             </div>
           </form>
