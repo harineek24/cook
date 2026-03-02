@@ -25,30 +25,40 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       .catch(() => {})
   }, [])
 
+  // Track whether user explicitly chose "add as new" for a fuzzy match
+  const [fuzzyOverride, setFuzzyOverride] = useState(false)
+
   // Match the entered name against existing ingredients (fuzzy/contains match)
-  const matchingIngredient = useMemo(() => {
-    if (!name.trim()) return null
+  const { matchingIngredient, isExactMatch } = useMemo(() => {
+    if (!name.trim()) return { matchingIngredient: null, isExactMatch: false }
     const normalized = name.trim().toLowerCase()
     const all = [...defaultIngredients, ...freshIngredients]
     // Prefer exact match first
     const exact = all.find(i => i.name.toLowerCase() === normalized)
-    if (exact) return exact
+    if (exact) return { matchingIngredient: exact, isExactMatch: true }
     // Then check if detected name contains an existing ingredient name or vice versa
-    // e.g. "Chicken Breast" matches "Chicken", "Raw Salmon" matches "Salmon"
-    return all.find(i =>
+    const fuzzy = all.find(i =>
       normalized.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(normalized)
     )
+    return { matchingIngredient: fuzzy || null, isExactMatch: false }
   }, [name, freshIngredients])
 
+  // When fuzzy override is active, treat as no match
+  const effectiveMatch = (fuzzyOverride || !matchingIngredient) ? null : matchingIngredient
+  const isFuzzyMatch = matchingIngredient && !isExactMatch && !fuzzyOverride
+
+  // Reset override when name changes
+  useEffect(() => { setFuzzyOverride(false) }, [name])
+
   const hasRecipes = useMemo(() => {
-    if (!matchingIngredient) return false
-    return recipes.some(r => r.ingredientId === matchingIngredient.id)
-  }, [matchingIngredient, recipes])
+    if (!effectiveMatch) return false
+    return recipes.some(r => r.ingredientId === effectiveMatch.id)
+  }, [effectiveMatch, recipes])
 
   const handleSeeRecipes = () => {
-    if (matchingIngredient) {
+    if (effectiveMatch) {
       onClose()
-      navigate(`/recipes/${matchingIngredient.id}`)
+      navigate(`/recipes/${effectiveMatch.id}`)
     }
   }
 
@@ -180,7 +190,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     if (!name.trim()) return
 
     if (file) {
-      if (matchingIngredient) {
+      if (effectiveMatch) {
         // Match found — go to its recipe page
         handleSeeRecipes()
       } else {
@@ -255,6 +265,33 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <p className="text-red-500 text-sm text-center mt-3">{error}</p>
             )}
 
+            {isFuzzyMatch && (
+              <div className="mt-4 p-3 rounded-xl bg-peach/10 border border-peach/30">
+                <p className="text-sm text-brown text-center">
+                  We found <strong>{matchingIngredient.name}</strong> in your fridge
+                </p>
+                <div className="flex justify-center gap-2 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={handleSeeRecipes}
+                    className="px-4 py-2 text-xs font-medium rounded-full bg-coral text-white
+                               hover:bg-coral/90 transition-all"
+                  >
+                    View {matchingIngredient.name} Recipes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFuzzyOverride(true)}
+                    className="px-4 py-2 text-xs font-medium rounded-full
+                               border border-gray-200 text-brown-light hover:text-brown
+                               hover:border-gray-300 transition-all"
+                  >
+                    Add {name.trim()} Instead
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="mt-6 flex justify-center gap-3">
               <button
                 type="button"
@@ -265,7 +302,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               >
                 Cancel
               </button>
-              {matchingIngredient ? (
+              {effectiveMatch ? (
                 <button
                   type="button"
                   onClick={handleSeeRecipes}
@@ -343,6 +380,34 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <p className="text-red-500 text-sm text-center mt-3">{error}</p>
             )}
 
+            {/* Fuzzy match banner */}
+            {isFuzzyMatch && (
+              <div className="mt-4 p-3 rounded-xl bg-peach/10 border border-peach/30">
+                <p className="text-sm text-brown text-center">
+                  We found <strong>{matchingIngredient.name}</strong> in your fridge
+                </p>
+                <div className="flex justify-center gap-2 mt-2.5">
+                  <button
+                    type="button"
+                    onClick={handleSeeRecipes}
+                    className="px-4 py-2 text-xs font-medium rounded-full bg-coral text-white
+                               hover:bg-coral/90 transition-all"
+                  >
+                    View {matchingIngredient.name} Recipes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFuzzyOverride(true)}
+                    className="px-4 py-2 text-xs font-medium rounded-full
+                               border border-gray-200 text-brown-light hover:text-brown
+                               hover:border-gray-300 transition-all"
+                  >
+                    Add {name.trim()} Instead
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Actions */}
             <div className="mt-6 flex justify-center gap-3">
               <button
@@ -373,7 +438,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                   </>
                 )}
               </button>
-              {matchingIngredient ? (
+              {effectiveMatch ? (
                 <button
                   type="button"
                   onClick={handleSeeRecipes}
@@ -417,6 +482,33 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                 <p className="text-xs text-brown-light/60 mt-1.5 px-1">
                   Skip the image and we&apos;ll auto-generate one
                 </p>
+
+                {isFuzzyMatch && (
+                  <div className="mt-3 p-3 rounded-xl bg-peach/10 border border-peach/30">
+                    <p className="text-sm text-brown text-center">
+                      We found <strong>{matchingIngredient.name}</strong> in your fridge
+                    </p>
+                    <div className="flex justify-center gap-2 mt-2.5">
+                      <button
+                        type="button"
+                        onClick={handleSeeRecipes}
+                        className="px-4 py-2 text-xs font-medium rounded-full bg-coral text-white
+                                   hover:bg-coral/90 transition-all"
+                      >
+                        View {matchingIngredient.name} Recipes
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFuzzyOverride(true)}
+                        className="px-4 py-2 text-xs font-medium rounded-full
+                                   border border-gray-200 text-brown-light hover:text-brown
+                                   hover:border-gray-300 transition-all"
+                      >
+                        Add {name.trim()} Instead
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Drop zone */}
@@ -501,7 +593,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? (matchingIngredient ? 'Check out Recipes' : 'Add to Fridge') : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? (effectiveMatch ? 'Check out Recipes' : 'Add to Fridge') : 'Generate Preview'}
               </button>
             </div>
           </form>
