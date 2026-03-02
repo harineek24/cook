@@ -46,7 +46,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   }, [matchingIngredient, recipes])
 
   const handleSeeRecipes = () => {
-    if (matchingIngredient && hasRecipes) {
+    if (matchingIngredient) {
       onClose()
       navigate(`/recipes/${matchingIngredient.id}`)
     }
@@ -226,11 +226,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <button
                 type="button"
                 onClick={handleSeeRecipes}
-                disabled={!name.trim() || !hasRecipes}
+                disabled={!name.trim() || !matchingIngredient}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
+                Check out Recipes
               </button>
             </div>
           </div>
@@ -312,11 +312,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <button
                 type="button"
                 onClick={handleSeeRecipes}
-                disabled={!hasRecipes}
+                disabled={!matchingIngredient}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
+                Check out Recipes
               </button>
             </div>
           </div>
@@ -414,7 +414,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="submit"
-                disabled={!name.trim() || processing || (file && !hasRecipes)}
+                disabled={!name.trim() || processing || (file && !matchingIngredient)}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
@@ -424,7 +424,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? (hasRecipes ? 'See Recipes' : 'No recipes yet') : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? 'Check out Recipes' : 'Generate Preview'}
               </button>
             </div>
           </form>
