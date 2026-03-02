@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
+export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
@@ -53,6 +53,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     handleFile(e.dataTransfer.files[0])
   }
 
+  // Which option the user picked: 'ai' or 'emoji'
+  const [selectedOption, setSelectedOption] = useState(null)
+
   // Generate an AI image (or regenerate)
   const handleGenerate = async () => {
     setProcessing(true)
@@ -60,6 +63,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     setStatus('Generating image...')
     setGeneratedUrl(null)
     setGeneratedEmoji(null)
+    setSelectedOption(null)
 
     try {
       const genRes = await fetch('/api/images/generate', {
@@ -70,11 +74,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       if (!genRes.ok) throw new Error('Generation failed')
       const genData = await genRes.json()
 
-      if (genData.url) {
-        setGeneratedUrl(genData.url)
-      } else if (genData.emoji) {
-        setGeneratedEmoji(genData.emoji)
-      }
+      setGeneratedUrl(genData.url || null)
+      setGeneratedEmoji(genData.emoji || null)
+      // Default to AI image if available, otherwise emoji
+      setSelectedOption(genData.url ? 'ai' : 'emoji')
     } catch {
       setError('Image generation failed. You can try again or add without an image.')
     } finally {
@@ -148,7 +151,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <h2 className="text-lg font-display font-semibold text-brown">
-            {showingGenerated ? 'Preview' : 'Add an Ingredient'}
+            {identifiedImage && !showingGenerated ? 'Ingredient Found' : showingGenerated ? 'Preview' : 'Add an Ingredient'}
           </h2>
           <button
             type="button"
@@ -161,33 +164,102 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           </button>
         </div>
 
-        {showingGenerated ? (
-          /* ── Generated image preview ── */
+        {identifiedImage && !showingGenerated ? (
+          /* ── Identified ingredient confirmation ── */
           <div className="px-6 pb-6">
             <div className="flex flex-col items-center gap-4">
-              {/* Preview image */}
-              <div className="w-32 h-32 rounded-2xl bg-sand/30 flex items-center justify-center overflow-hidden border border-gray-100">
-                {generatedUrl ? (
-                  <img
-                    src={generatedUrl}
-                    alt={name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : generatedEmoji ? (
-                  <span className="text-6xl">{generatedEmoji}</span>
-                ) : null}
+              <div className="w-32 h-32 rounded-2xl bg-sand/30 overflow-hidden shadow-sm">
+                <img src={identifiedImage} alt={name} className="w-full h-full object-cover" />
               </div>
+              <div className="text-center">
+                <p className="text-xs text-brown-light/60 mb-1">Detected ingredient</p>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="text-center text-lg font-display font-semibold text-brown
+                             border-b-2 border-dashed border-peach/40 focus:border-coral
+                             outline-none bg-transparent px-2 py-1 transition-colors"
+                />
+                <p className="text-xs text-brown-light/40 mt-1">Tap to edit if wrong</p>
+              </div>
+            </div>
 
-              <p className="text-sm text-brown font-medium">{name.trim()}</p>
-              <p className="text-xs text-brown-light/60">
-                {generatedUrl ? 'AI-generated image' : 'Emoji match'}
-              </p>
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
 
-              {/* Error */}
-              {error && (
-                <p className="text-red-500 text-sm text-center">{error}</p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-sm font-medium rounded-full
+                           border border-gray-200 text-brown-light hover:text-brown
+                           hover:border-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(identifiedImage, null)}
+                disabled={!name.trim() || processing}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                )}
+                {processing ? 'Saving...' : 'Add to Fridge'}
+              </button>
+            </div>
+          </div>
+        ) : showingGenerated ? (
+          /* ── Generated image preview — pick AI or emoji ── */
+          <div className="px-6 pb-6">
+            <p className="text-sm text-brown font-medium text-center mb-1">{name.trim()}</p>
+            <p className="text-xs text-brown-light/60 text-center mb-4">Choose an image for this ingredient</p>
+
+            {/* Side-by-side options */}
+            <div className="flex justify-center gap-4">
+              {generatedUrl && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('ai')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'ai'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center overflow-hidden">
+                    <img src={generatedUrl} alt={name} className="w-full h-full object-contain" />
+                  </div>
+                  <span className="text-xs font-medium text-brown">AI Image</span>
+                </button>
+              )}
+              {generatedEmoji && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('emoji')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'emoji'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center">
+                    <span className="text-5xl">{generatedEmoji}</span>
+                  </div>
+                  <span className="text-xs font-medium text-brown">Emoji</span>
+                </button>
               )}
             </div>
+
+            {/* Error */}
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
 
             {/* Actions */}
             <div className="mt-6 flex justify-center gap-3">
@@ -221,8 +293,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="button"
-                onClick={() => handleSave(generatedUrl, generatedEmoji)}
-                disabled={processing}
+                onClick={() => {
+                  const useAi = selectedOption === 'ai'
+                  handleSave(useAi ? generatedUrl : null, useAi ? null : generatedEmoji)
+                }}
+                disabled={processing || !selectedOption}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
