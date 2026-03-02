@@ -3,10 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useRecipes } from '../context/RecipeContext'
 import { ingredients as defaultIngredients } from '../data/ingredients'
 
-export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
-  const navigate = useNavigate()
-  const { customIngredients } = useRecipes()
-
+export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
@@ -74,6 +71,9 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     handleFile(e.dataTransfer.files[0])
   }
 
+  // Which option the user picked: 'ai' or 'emoji'
+  const [selectedOption, setSelectedOption] = useState(null)
+
   // Generate an AI image (or regenerate)
   const handleGenerate = async () => {
     setProcessing(true)
@@ -81,6 +81,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     setStatus('Generating image...')
     setGeneratedUrl(null)
     setGeneratedEmoji(null)
+    setSelectedOption(null)
 
     try {
       const genRes = await fetch('/api/images/generate', {
@@ -91,11 +92,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
       if (!genRes.ok) throw new Error('Generation failed')
       const genData = await genRes.json()
 
-      if (genData.url) {
-        setGeneratedUrl(genData.url)
-      } else if (genData.emoji) {
-        setGeneratedEmoji(genData.emoji)
-      }
+      setGeneratedUrl(genData.url || null)
+      setGeneratedEmoji(genData.emoji || null)
+      // Default to AI image if available, otherwise emoji
+      setSelectedOption(genData.url ? 'ai' : 'emoji')
     } catch {
       setError('Image generation failed. You can try again or add without an image.')
     } finally {
@@ -184,9 +184,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <h2 className="text-lg font-display font-semibold text-brown">
-            {showingGenerated
-              ? (existingIngredient ? 'Ingredient Found' : 'Preview')
-              : 'Add an Ingredient'}
+            {identifiedImage && !showingGenerated ? 'Ingredient Found' : showingGenerated ? 'Preview' : 'Add an Ingredient'}
           </h2>
           <button
             type="button"
@@ -199,33 +197,102 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           </button>
         </div>
 
-        {showingGenerated ? (
-          /* ── Generated image preview ── */
+        {identifiedImage && !showingGenerated ? (
+          /* ── Identified ingredient confirmation ── */
           <div className="px-6 pb-6">
             <div className="flex flex-col items-center gap-4">
-              {/* Preview image */}
-              <div className="w-32 h-32 rounded-2xl bg-sand/30 flex items-center justify-center overflow-hidden border border-gray-100">
-                {generatedUrl ? (
-                  <img
-                    src={generatedUrl}
-                    alt={name}
-                    className="w-full h-full object-contain"
-                  />
-                ) : generatedEmoji ? (
-                  <span className="text-6xl">{generatedEmoji}</span>
-                ) : null}
+              <div className="w-32 h-32 rounded-2xl bg-sand/30 overflow-hidden shadow-sm">
+                <img src={identifiedImage} alt={name} className="w-full h-full object-cover" />
               </div>
+              <div className="text-center">
+                <p className="text-xs text-brown-light/60 mb-1">Detected ingredient</p>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="text-center text-lg font-display font-semibold text-brown
+                             border-b-2 border-dashed border-peach/40 focus:border-coral
+                             outline-none bg-transparent px-2 py-1 transition-colors"
+                />
+                <p className="text-xs text-brown-light/40 mt-1">Tap to edit if wrong</p>
+              </div>
+            </div>
 
-              <p className="text-sm text-brown font-medium">{name.trim()}</p>
-              <p className="text-xs text-brown-light/60">
-                {generatedUrl ? 'AI-generated image' : 'Emoji match'}
-              </p>
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
 
-              {/* Error */}
-              {error && (
-                <p className="text-red-500 text-sm text-center">{error}</p>
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-sm font-medium rounded-full
+                           border border-gray-200 text-brown-light hover:text-brown
+                           hover:border-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(identifiedImage, null)}
+                disabled={!name.trim() || processing}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                )}
+                {processing ? 'Saving...' : 'Add to Fridge'}
+              </button>
+            </div>
+          </div>
+        ) : showingGenerated ? (
+          /* ── Generated image preview — pick AI or emoji ── */
+          <div className="px-6 pb-6">
+            <p className="text-sm text-brown font-medium text-center mb-1">{name.trim()}</p>
+            <p className="text-xs text-brown-light/60 text-center mb-4">Choose an image for this ingredient</p>
+
+            {/* Side-by-side options */}
+            <div className="flex justify-center gap-4">
+              {generatedUrl && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('ai')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'ai'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center overflow-hidden">
+                    <img src={generatedUrl} alt={name} className="w-full h-full object-contain" />
+                  </div>
+                  <span className="text-xs font-medium text-brown">AI Image</span>
+                </button>
+              )}
+              {generatedEmoji && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedOption('emoji')}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all
+                    ${selectedOption === 'emoji'
+                      ? 'border-coral bg-coral/5 shadow-sm'
+                      : 'border-gray-200 hover:border-gray-300'}`}
+                >
+                  <div className="w-24 h-24 rounded-xl bg-sand/30 flex items-center justify-center">
+                    <span className="text-5xl">{generatedEmoji}</span>
+                  </div>
+                  <span className="text-xs font-medium text-brown">Emoji</span>
+                </button>
               )}
             </div>
+
+            {/* Error */}
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
 
             {/* Actions */}
             {existingIngredient ? (
@@ -261,58 +328,29 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                             d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                     </svg>
-                    Yes, see recipes
-                  </button>
-                </div>
-              </div>
-            ) : (
-              /* New ingredient — regenerate / add */
-              <div className="mt-6 flex justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleGenerate}
-                  disabled={processing}
-                  className="px-5 py-2.5 text-sm font-medium rounded-full
-                             border border-gray-200 text-brown-light hover:text-brown
-                             hover:border-gray-300 transition-all
-                             disabled:opacity-40 disabled:cursor-not-allowed
-                             flex items-center gap-2"
-                >
-                  {processing ? (
-                    <>
-                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                        <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                      </svg>
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                      </svg>
-                      Regenerate
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSave(generatedUrl, generatedEmoji)}
-                  disabled={processing}
-                  className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
-                             flex items-center gap-2"
-                >
-                  {processing && (
-                    <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                    </svg>
-                  )}
-                  {processing ? 'Saving...' : 'Add to Fridge'}
-                </button>
-              </div>
-            )}
+                    Regenerate
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const useAi = selectedOption === 'ai'
+                  handleSave(useAi ? generatedUrl : null, useAi ? null : generatedEmoji)
+                }}
+                disabled={processing || !selectedOption}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                )}
+                {processing ? 'Saving...' : 'Add to Fridge'}
+              </button>
+            </div>
           </div>
         ) : (
           /* ── Normal form ── */

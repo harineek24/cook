@@ -6,6 +6,8 @@ import crypto from 'crypto'
 import pool from './db.js'
 
 const app = express()
+const POLLINATIONS_KEY = process.env.POLLINATIONS_API_KEY || ''
+console.log(`Pollinations API key: ${POLLINATIONS_KEY ? `loaded (${POLLINATIONS_KEY.slice(0, 6)}...)` : 'NOT SET'}`)
 
 // ── Emoji lookup for auto-image generation ──────────────────────
 const EMOJI_MAP = {
@@ -36,6 +38,10 @@ const EMOJI_MAP = {
   guava: '1f351', papaya: '1f351', dragonfruit: '1f351',
   passionfruit: '1f351', lychee: '1f351', date: '1f351',
   rice: '1f35a', pasta: '1f35d', noodles: '1f35c', bread: '1f35e',
+  wheat: '1f33e', millet: '1f33e', barley: '1f33e', oats: '1f33e',
+  oatmeal: '1f33e', quinoa: '1f33e', couscous: '1f33e', bulgur: '1f33e',
+  sorghum: '1f33e', rye: '1f33e', buckwheat: '1f33e', amaranth: '1f33e',
+  cornmeal: '1f33d', polenta: '1f33d', grits: '1f33d', semolina: '1f33e',
   honey: '1f36f', peanuts: '1f95c', peanut: '1f95c',
   chili: '1f336-fe0f', 'chili pepper': '1f336-fe0f',
   'olive oil': '1fad2', oil: '1fad2', flour: '1f35e',
@@ -68,104 +74,6 @@ function findEmojiCodepoint(name) {
   return null
 }
 
-// ── Background removal (flood-fill from edges) ─────────────────
-async function removeBackground(inputBuffer) {
-  const { data, info } = await sharp(inputBuffer)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-
-  const { width, height, channels } = info
-  if (channels !== 4) return inputBuffer
-
-  const pixelCount = width * height
-  const visited = new Uint8Array(pixelCount)
-  const isBg = new Uint8Array(pixelCount)
-
-  const idx = (x, y) => y * width + x
-  const pixelAt = (i) => [data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]
-
-  function colorDist(a, b) {
-    return Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
-  }
-
-  const tolerance = 40
-  const queue = []
-
-  for (let x = 0; x < width; x++) {
-    queue.push(idx(x, 0))
-    queue.push(idx(x, height - 1))
-  }
-  for (let y = 1; y < height - 1; y++) {
-    queue.push(idx(0, y))
-    queue.push(idx(width - 1, y))
-  }
-
-  for (const i of queue) {
-    visited[i] = 1
-    isBg[i] = 1
-  }
-
-  const neighbors = [[-1, 0], [1, 0], [0, -1], [0, 1]]
-  let head = 0
-  while (head < queue.length) {
-    const ci = queue[head++]
-    const cx = ci % width
-    const cy = (ci - cx) / width
-    const cColor = pixelAt(ci)
-
-    for (const [dx, dy] of neighbors) {
-      const nx = cx + dx
-      const ny = cy + dy
-      if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue
-      const ni = idx(nx, ny)
-      if (visited[ni]) continue
-
-      const nColor = pixelAt(ni)
-      const dist = colorDist(cColor, nColor)
-
-      if (dist < tolerance) {
-        visited[ni] = 1
-        isBg[ni] = 1
-        queue.push(ni)
-      } else {
-        visited[ni] = 1
-      }
-    }
-  }
-
-  const feather = new Float32Array(pixelCount)
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const i = idx(x, y)
-      if (isBg[i]) {
-        feather[i] = 0
-        continue
-      }
-      let bgCount = 0
-      let total = 0
-      for (let dy = -2; dy <= 2; dy++) {
-        for (let dx = -2; dx <= 2; dx++) {
-          const sx = x + dx
-          const sy = y + dy
-          if (sx < 0 || sx >= width || sy < 0 || sy >= height) continue
-          total++
-          if (isBg[idx(sx, sy)]) bgCount++
-        }
-      }
-      feather[i] = total > 0 ? 1 - (bgCount / total) : 1
-    }
-  }
-
-  for (let i = 0; i < pixelCount; i++) {
-    const alpha = Math.round(feather[i] * 255)
-    data[i * 4 + 3] = Math.min(data[i * 4 + 3], alpha)
-  }
-
-  return sharp(data, { raw: { width, height, channels } })
-    .png()
-    .toBuffer()
-}
 
 function codepointToEmoji(codepoint) {
   return codepoint.split('-').map(cp => String.fromCodePoint(parseInt(cp, 16))).join('')
@@ -226,7 +134,7 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
     try {
       pngBuffer = await sharp(req.file.buffer)
         .rotate()
-        .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .resize(256, 256, { fit: 'cover' })
         .png()
         .toBuffer()
     } catch (err) {
@@ -234,12 +142,6 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
       return res.status(400).json({
         error: `Cannot process this image format. ${err.message.includes('heif') ? 'HEIC/HEIF support not available — try converting to JPG first.' : 'Try a different image.'}`,
       })
-    }
-
-    try {
-      pngBuffer = await removeBackground(pngBuffer)
-    } catch (e) {
-      console.warn('Background removal skipped:', e.message)
     }
 
     const url = await saveImage(pngBuffer)
@@ -251,53 +153,182 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
   }
 })
 
+// Helper: try fetching an image from a URL, return Buffer or null
+async function tryFetchImage(url, label, timeoutMs = 30000, headers = {}) {
+  const t0 = Date.now()
+  try {
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'follow',
+      headers,
+    })
+    const elapsed = Date.now() - t0
+    const ct = res.headers.get('content-type') || ''
+    console.log(`${label}: ${res.status} in ${elapsed}ms, type=${ct}`)
+    if (res.ok && ct.startsWith('image/')) {
+      const buf = Buffer.from(await res.arrayBuffer())
+      console.log(`${label}: got ${buf.length} bytes`)
+      return { buffer: buf, elapsed, status: res.status }
+    }
+    const body = await res.text().catch(() => '')
+    return { error: `${res.status}: ${body.slice(0, 100)}`, elapsed }
+  } catch (err) {
+    return { error: `${err.name}: ${err.message}`, elapsed: Date.now() - t0 }
+  }
+}
+
+// Identify an ingredient from an uploaded photo using vision AI
+app.post('/api/images/identify', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image uploaded' })
+
+    console.log(`Identifying image: ${req.file.originalname} (${req.file.mimetype}, ${req.file.size} bytes)`)
+
+    // Resize to keep payload small for the vision API
+    const jpegBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(512, 512, { fit: 'cover' })
+      .jpeg({ quality: 80 })
+      .toBuffer()
+
+    const base64 = jpegBuffer.toString('base64')
+    const dataUrl = `data:image/jpeg;base64,${base64}`
+
+    // Call Pollinations text API with a vision-capable model
+    const headers = { 'Content-Type': 'application/json' }
+    if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
+    const apiRes = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+      method: 'POST',
+      headers,
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'What food ingredient does this image look like? Reply with ONLY the ingredient name in 1-3 words, nothing else. Examples: "Edamame", "Cherry Tomatoes", "Olive Oil". If you cannot identify a food ingredient, reply with "unknown".',
+              },
+              {
+                type: 'image_url',
+                image_url: { url: dataUrl },
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    console.log(`Vision API response status: ${apiRes.status}`)
+    console.log(`Vision API response headers:`, Object.fromEntries(apiRes.headers.entries()))
+
+    const rawText = await apiRes.text()
+    console.log(`Vision API raw response (first 500 chars): ${rawText.slice(0, 500)}`)
+
+    if (!apiRes.ok) {
+      console.error(`Vision API error: ${apiRes.status} ${rawText.slice(0, 200)}`)
+      return res.status(502).json({ error: 'Image recognition service unavailable' })
+    }
+
+    // Pollinations may return raw text or JSON (OpenAI-compatible format)
+    let name
+    try {
+      const json = JSON.parse(rawText)
+      console.log(`Vision API parsed JSON keys: ${Object.keys(json)}`)
+      name = json.choices?.[0]?.message?.content || json.text || rawText
+    } catch {
+      name = rawText
+    }
+
+    console.log(`Vision API extracted name: "${name}"`)
+
+    // Clean up the response
+    name = name.replace(/^["'\s]+|["'\s]+$/g, '').trim()
+    if (!name || name.toLowerCase() === 'unknown') {
+      console.log(`Vision API returned unknown or empty, returning identified: false`)
+      return res.json({ name: null, identified: false })
+    }
+
+    // Also process the image for storage (256x256 PNG)
+    const pngBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(256, 256, { fit: 'cover' })
+      .png()
+      .toBuffer()
+    const imageUrl = await saveImage(pngBuffer)
+
+    console.log(`Identified: "${name}", saved image: ${imageUrl}`)
+    res.json({ name, identified: true, imageUrl })
+  } catch (err) {
+    console.error('Identify error:', err)
+    res.status(500).json({ error: 'Failed to identify ingredient' })
+  }
+})
+
 // Generate a transparent PNG for an ingredient name
+// Returns both AI image AND emoji so the user can choose
 app.post('/api/images/generate', async (req, res) => {
   const { name } = req.body
   if (!name) return res.status(400).json({ error: 'Name is required' })
 
   const trimmed = name.trim()
 
-  try {
-    const prompt = encodeURIComponent(
-      `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
-    )
-    const url = `https://image.pollinations.ai/prompt/${prompt}?width=512&height=512&nologo=true&seed=${Date.now()}`
+  // Get emoji match (always attempt)
+  const codepoint = findEmojiCodepoint(trimmed)
+  const emoji = codepoint ? codepointToEmoji(codepoint) : '\u{1F372}'
 
-    console.log(`Generating image for "${trimmed}" via Pollinations...`)
-    const response = await fetch(url, { signal: AbortSignal.timeout(25000) })
+  // Try multiple image sources
+  let aiUrl = null
+  const debug = {}
 
-    if (response.ok) {
-      const arrayBuf = await response.arrayBuffer()
-      const imgBuffer = Buffer.from(arrayBuf)
+  const prompt = encodeURIComponent(
+    `${trimmed}, single food ingredient, centered, isolated on pure white background, studio food photography, no text, no labels, clean`
+  )
 
-      let pngBuffer = await sharp(imgBuffer)
-        .resize(256, 256, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+  // Spoonacular CDN uses lowercase hyphenated names: "tomato.jpg", "olive-oil.jpg"
+  const spoonName = trimmed.toLowerCase().replace(/\s+/g, '-')
+
+  // TheMealDB uses capitalized words: "Tomato.png", "Olive Oil.png"
+  const mealDbName = trimmed.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('%20')
+
+  const endpoints = [
+    // Pollinations AI generation (requires API key)
+    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://image.pollinations.ai/prompt/${prompt}?model=flux&width=256&height=256&nologo=true&seed=${Date.now()}`, timeoutMs: 30000, headers: { 'Authorization': `Bearer ${POLLINATIONS_KEY}` } }] : []),
+    // Free CDN fallbacks
+    { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
+    { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
+  ]
+
+  for (const ep of endpoints) {
+    debug[ep.label] = 'trying...'
+    const result = await tryFetchImage(ep.url, ep.label, ep.timeoutMs, ep.headers)
+
+    if (result.buffer) {
+      debug[ep.label] = `ok ${result.buffer.length}b in ${result.elapsed}ms`
+
+      let pngBuffer = await sharp(result.buffer)
+        .resize(256, 256, { fit: 'cover' })
         .png()
         .toBuffer()
 
       try {
-        pngBuffer = await removeBackground(pngBuffer)
-      } catch (e) {
-        console.warn('Background removal skipped for generated image:', e.message)
+        aiUrl = await saveImage(pngBuffer)
+        debug[ep.label] += ` → saved`
+      } catch (dbErr) {
+        console.warn(`DB save failed, using data URL:`, dbErr.message)
+        aiUrl = `data:image/png;base64,${pngBuffer.toString('base64')}`
+        debug[ep.label] += ` → data-url`
       }
-
-      const savedUrl = await saveImage(pngBuffer)
-      console.log(`Generated image for "${trimmed}" → ${savedUrl}`)
-      return res.json({ url: savedUrl, emoji: null, matched: true })
+      break // success, stop trying other endpoints
+    } else {
+      debug[ep.label] = `fail: ${result.error}`
     }
-  } catch (err) {
-    console.warn(`AI generation failed for "${trimmed}":`, err.message)
   }
 
-  const codepoint = findEmojiCodepoint(trimmed)
-  if (codepoint) {
-    const emoji = codepointToEmoji(codepoint)
-    console.log(`Emoji fallback for "${trimmed}" → ${emoji}`)
-    return res.json({ url: null, emoji, matched: true })
-  }
-
-  res.json({ url: null, emoji: null, matched: false })
+  console.log(`Results for "${trimmed}": ai=${aiUrl ? 'yes' : 'no'}, emoji=${emoji}, debug=${JSON.stringify(debug)}`)
+  res.json({ url: aiUrl, emoji, matched: true, debug })
 })
 
 // Get custom ingredients
