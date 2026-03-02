@@ -153,12 +153,13 @@ app.post('/api/images/process', upload.single('image'), async (req, res) => {
 })
 
 // Helper: try fetching an image from a URL, return Buffer or null
-async function tryFetchImage(url, label, timeoutMs = 30000) {
+async function tryFetchImage(url, label, timeoutMs = 30000, headers = {}) {
   const t0 = Date.now()
   try {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
       redirect: 'follow',
+      headers,
     })
     const elapsed = Date.now() - t0
     const ct = res.headers.get('content-type') || ''
@@ -195,7 +196,7 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
     // Call Pollinations text API with a vision-capable model
     const headers = { 'Content-Type': 'application/json' }
     if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
-    const apiRes = await fetch('https://text.pollinations.ai/', {
+    const apiRes = await fetch('https://text.pollinations.ai/openai', {
       method: 'POST',
       headers,
       signal: AbortSignal.timeout(30000),
@@ -285,7 +286,7 @@ app.post('/api/images/generate', async (req, res) => {
 
   const endpoints = [
     // Pollinations AI generation (requires API key)
-    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://gen.pollinations.ai/image/${prompt}?model=flux&key=${POLLINATIONS_KEY}`, timeoutMs: 30000 }] : []),
+    ...(POLLINATIONS_KEY ? [{ label: 'pollinations', url: `https://image.pollinations.ai/prompt/${prompt}?model=flux&width=256&height=256&nologo=true&seed=${Date.now()}`, timeoutMs: 30000, headers: { 'Authorization': `Bearer ${POLLINATIONS_KEY}` } }] : []),
     // Free CDN fallbacks
     { label: 'spoonacular', url: `https://img.spoonacular.com/ingredients_250x250/${spoonName}.jpg`, timeoutMs: 8000 },
     { label: 'mealdb', url: `https://www.themealdb.com/images/ingredients/${mealDbName}.png`, timeoutMs: 8000 },
@@ -293,7 +294,7 @@ app.post('/api/images/generate', async (req, res) => {
 
   for (const ep of endpoints) {
     debug[ep.label] = 'trying...'
-    const result = await tryFetchImage(ep.url, ep.label, ep.timeoutMs)
+    const result = await tryFetchImage(ep.url, ep.label, ep.timeoutMs, ep.headers)
 
     if (result.buffer) {
       debug[ep.label] = `ok ${result.buffer.length}b in ${result.elapsed}ms`
