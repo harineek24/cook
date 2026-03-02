@@ -1,6 +1,12 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useRecipes } from '../context/RecipeContext'
+import { ingredients as defaultIngredients } from '../data/ingredients'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
+  const navigate = useNavigate()
+  const { recipes, customIngredients } = useRecipes()
+
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
@@ -9,6 +15,26 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [error, setError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
+
+  // Match the entered name against existing ingredients and check for recipes
+  const matchingIngredient = useMemo(() => {
+    if (!name.trim()) return null
+    const normalized = name.trim().toLowerCase()
+    const all = [...defaultIngredients, ...customIngredients]
+    return all.find(i => i.name.toLowerCase() === normalized)
+  }, [name, customIngredients])
+
+  const hasRecipes = useMemo(() => {
+    if (!matchingIngredient) return false
+    return recipes.some(r => r.ingredientId === matchingIngredient.id)
+  }, [matchingIngredient, recipes])
+
+  const handleSeeRecipes = () => {
+    if (matchingIngredient && hasRecipes) {
+      onClose()
+      navigate(`/recipes/${matchingIngredient.id}`)
+    }
+  }
 
   // Generated image preview state
   const [generatedUrl, setGeneratedUrl] = useState(null)
@@ -114,26 +140,8 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     if (!name.trim()) return
 
     if (file) {
-      // User provided an image — upload, process, save directly
-      setProcessing(true)
-      setError(null)
-      setStatus('Converting to transparent PNG...')
-
-      try {
-        const formData = new FormData()
-        formData.append('image', file)
-        const imgRes = await fetch('/api/images/process', { method: 'POST', body: formData })
-        if (!imgRes.ok) {
-          const err = await imgRes.json().catch(() => ({}))
-          throw new Error(err.error || 'Image processing failed')
-        }
-        const imgData = await imgRes.json()
-        await handleSave(imgData.url, null)
-      } catch (err) {
-        setError(err.message)
-        setProcessing(false)
-        setStatus('')
-      }
+      // User provided an image — navigate to recipes if available
+      handleSeeRecipes()
     } else {
       // No image — generate an AI preview first
       await handleGenerate()
@@ -201,18 +209,12 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="button"
-                onClick={() => handleSave(identifiedImage, null)}
-                disabled={!name.trim() || processing}
+                onClick={handleSeeRecipes}
+                disabled={!name.trim() || !hasRecipes}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {processing && (
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                  </svg>
-                )}
-                {processing ? 'Saving...' : 'Add to Fridge'}
+                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
               </button>
             </div>
           </div>
@@ -293,21 +295,12 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const useAi = selectedOption === 'ai'
-                  handleSave(useAi ? generatedUrl : null, useAi ? null : generatedEmoji)
-                }}
-                disabled={processing || !selectedOption}
+                onClick={handleSeeRecipes}
+                disabled={!hasRecipes}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {processing && (
-                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                  </svg>
-                )}
-                {processing ? 'Saving...' : 'Add to Fridge'}
+                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
               </button>
             </div>
           </div>
@@ -405,7 +398,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="submit"
-                disabled={!name.trim() || processing}
+                disabled={!name.trim() || processing || (file && !hasRecipes)}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
@@ -415,7 +408,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? 'Add to Fridge' : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? (hasRecipes ? 'See Recipes' : 'No recipes yet') : 'Generate Preview'}
               </button>
             </div>
           </form>
