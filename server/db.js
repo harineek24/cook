@@ -26,6 +26,21 @@ export async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `)
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recipes (
+      id TEXT PRIMARY KEY,
+      ingredient_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      author TEXT NOT NULL DEFAULT 'Anonymous',
+      cook_time TEXT,
+      servings INTEGER DEFAULT 1,
+      content TEXT NOT NULL,
+      audio_url TEXT,
+      transcription TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
 }
 
 export default pool

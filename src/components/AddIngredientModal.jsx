@@ -52,6 +52,30 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     }
   }
 
+  // Save a brand-new ingredient to DB (no match found) and go to its recipe page
+  const handleAddToFridge = async (imageUrl, emoji) => {
+    setProcessing(true)
+    setError(null)
+    setStatus('Adding to fridge...')
+    try {
+      const res = await fetch('/api/ingredients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name.trim(), imageUrl: imageUrl || null, emoji: emoji || null }),
+      })
+      if (!res.ok) throw new Error('Failed to save ingredient')
+      const ingredient = await res.json()
+      onSubmit(ingredient)
+      onClose()
+      navigate(`/recipes/${ingredient.id}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setProcessing(false)
+      setStatus('')
+    }
+  }
+
   // Generated image preview state
   const [generatedUrl, setGeneratedUrl] = useState(null)
   const [generatedEmoji, setGeneratedEmoji] = useState(null)
@@ -156,8 +180,26 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     if (!name.trim()) return
 
     if (file) {
-      // User provided an image — navigate to recipes if available
-      handleSeeRecipes()
+      if (matchingIngredient) {
+        // Match found — go to its recipe page
+        handleSeeRecipes()
+      } else {
+        // No match — upload the image, save ingredient, go to its recipe page
+        setProcessing(true)
+        setError(null)
+        setStatus('Uploading image...')
+        try {
+          const formData = new FormData()
+          formData.append('image', file)
+          const uploadRes = await fetch('/api/images/upload', { method: 'POST', body: formData })
+          const uploadUrl = uploadRes.ok ? (await uploadRes.json()).url : null
+          await handleAddToFridge(uploadUrl, null)
+        } catch {
+          setError('Failed to upload image')
+          setProcessing(false)
+          setStatus('')
+        }
+      }
     } else {
       // No image — generate an AI preview first
       await handleGenerate()
@@ -223,15 +265,37 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={handleSeeRecipes}
-                disabled={!name.trim() || !matchingIngredient}
-                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
-                           flex items-center gap-2"
-              >
-                Check out Recipes
-              </button>
+              {matchingIngredient ? (
+                <button
+                  type="button"
+                  onClick={handleSeeRecipes}
+                  disabled={!name.trim()}
+                  className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                             flex items-center gap-2"
+                >
+                  Check out Recipes
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleAddToFridge(identifiedImage, null)}
+                  disabled={!name.trim() || processing}
+                  className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                             flex items-center gap-2"
+                >
+                  {processing ? (
+                    <>
+                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                        <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                      </svg>
+                      Adding...
+                    </>
+                  ) : (
+                    'Add to Fridge'
+                  )}
+                </button>
+              )}
             </div>
           </div>
         ) : showingGenerated ? (
@@ -309,15 +373,28 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                   </>
                 )}
               </button>
-              <button
-                type="button"
-                onClick={handleSeeRecipes}
-                disabled={!matchingIngredient}
-                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
-                           flex items-center gap-2"
-              >
-                Check out Recipes
-              </button>
+              {matchingIngredient ? (
+                <button
+                  type="button"
+                  onClick={handleSeeRecipes}
+                  className="btn-primary text-sm flex items-center gap-2"
+                >
+                  Check out Recipes
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleAddToFridge(
+                    selectedOption === 'ai' ? generatedUrl : null,
+                    selectedOption === 'emoji' ? generatedEmoji : null
+                  )}
+                  disabled={processing}
+                  className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                             flex items-center gap-2"
+                >
+                  {processing ? 'Adding...' : 'Add to Fridge'}
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -414,7 +491,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="submit"
-                disabled={!name.trim() || processing || (file && !matchingIngredient)}
+                disabled={!name.trim() || processing}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
@@ -424,7 +501,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? 'Check out Recipes' : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? (matchingIngredient ? 'Check out Recipes' : 'Add to Fridge') : 'Generate Preview'}
               </button>
             </div>
           </form>
