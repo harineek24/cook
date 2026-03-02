@@ -16,13 +16,29 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
-  // Match the entered name against existing ingredients and check for recipes
+  // Fetch fresh custom ingredients from DB when modal opens
+  const [freshIngredients, setFreshIngredients] = useState(customIngredients)
+  useEffect(() => {
+    fetch('/api/ingredients')
+      .then((r) => r.ok ? r.json() : [])
+      .then(setFreshIngredients)
+      .catch(() => {})
+  }, [])
+
+  // Match the entered name against existing ingredients (fuzzy/contains match)
   const matchingIngredient = useMemo(() => {
     if (!name.trim()) return null
     const normalized = name.trim().toLowerCase()
-    const all = [...defaultIngredients, ...customIngredients]
-    return all.find(i => i.name.toLowerCase() === normalized)
-  }, [name, customIngredients])
+    const all = [...defaultIngredients, ...freshIngredients]
+    // Prefer exact match first
+    const exact = all.find(i => i.name.toLowerCase() === normalized)
+    if (exact) return exact
+    // Then check if detected name contains an existing ingredient name or vice versa
+    // e.g. "Chicken Breast" matches "Chicken", "Raw Salmon" matches "Salmon"
+    return all.find(i =>
+      normalized.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(normalized)
+    )
+  }, [name, freshIngredients])
 
   const hasRecipes = useMemo(() => {
     if (!matchingIngredient) return false
@@ -30,7 +46,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   }, [matchingIngredient, recipes])
 
   const handleSeeRecipes = () => {
-    if (matchingIngredient && hasRecipes) {
+    if (matchingIngredient) {
       onClose()
       navigate(`/recipes/${matchingIngredient.id}`)
     }
@@ -210,11 +226,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <button
                 type="button"
                 onClick={handleSeeRecipes}
-                disabled={!name.trim() || !hasRecipes}
+                disabled={!name.trim() || !matchingIngredient}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
+                Check out Recipes
               </button>
             </div>
           </div>
@@ -296,11 +312,11 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               <button
                 type="button"
                 onClick={handleSeeRecipes}
-                disabled={!hasRecipes}
+                disabled={!matchingIngredient}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
-                {hasRecipes ? 'See Recipes' : 'No recipes yet'}
+                Check out Recipes
               </button>
             </div>
           </div>
@@ -398,7 +414,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
               </button>
               <button
                 type="submit"
-                disabled={!name.trim() || processing || (file && !hasRecipes)}
+                disabled={!name.trim() || processing || (file && !matchingIngredient)}
                 className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
                            flex items-center gap-2"
               >
@@ -408,7 +424,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
                     <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
                   </svg>
                 )}
-                {processing ? status || 'Processing...' : file ? (hasRecipes ? 'See Recipes' : 'No recipes yet') : 'Generate Preview'}
+                {processing ? status || 'Processing...' : file ? 'Check out Recipes' : 'Generate Preview'}
               </button>
             </div>
           </form>
