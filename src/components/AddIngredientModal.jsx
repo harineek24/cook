@@ -16,12 +16,19 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef(null)
 
-  // Match the entered name against existing ingredients and check for recipes
+  // Match the entered name against existing ingredients (fuzzy/contains match)
   const matchingIngredient = useMemo(() => {
     if (!name.trim()) return null
     const normalized = name.trim().toLowerCase()
     const all = [...defaultIngredients, ...customIngredients]
-    return all.find(i => i.name.toLowerCase() === normalized)
+    // Prefer exact match first
+    const exact = all.find(i => i.name.toLowerCase() === normalized)
+    if (exact) return exact
+    // Then check if detected name contains an existing ingredient name or vice versa
+    // e.g. "Chicken Breast" matches "Chicken", "Raw Salmon" matches "Salmon"
+    return all.find(i =>
+      normalized.includes(i.name.toLowerCase()) || i.name.toLowerCase().includes(normalized)
+    )
   }, [name, customIngredients])
 
   const hasRecipes = useMemo(() => {
