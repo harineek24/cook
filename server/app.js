@@ -174,6 +174,86 @@ async function tryFetchImage(url, label, timeoutMs = 30000) {
   }
 }
 
+// Identify an ingredient from an uploaded photo using vision AI
+app.post('/api/images/identify', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image uploaded' })
+
+    console.log(`Identifying image: ${req.file.originalname} (${req.file.mimetype}, ${req.file.size} bytes)`)
+
+    // Resize to keep payload small for the vision API
+    const jpegBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(512, 512, { fit: 'cover' })
+      .jpeg({ quality: 80 })
+      .toBuffer()
+
+    const base64 = jpegBuffer.toString('base64')
+    const dataUrl = `data:image/jpeg;base64,${base64}`
+
+    // Call Pollinations text API with a vision-capable model
+    const apiRes = await fetch('https://text.pollinations.ai/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(30000),
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'What food ingredient or food item is shown in this image? Reply with ONLY the ingredient name in 1-3 words, nothing else. Examples: "Edamame", "Cherry Tomatoes", "Olive Oil". If you cannot identify a food item, reply with "unknown".',
+              },
+              {
+                type: 'image_url',
+                image_url: { url: dataUrl },
+              },
+            ],
+          },
+        ],
+      }),
+    })
+
+    if (!apiRes.ok) {
+      const body = await apiRes.text().catch(() => '')
+      console.error(`Vision API error: ${apiRes.status} ${body.slice(0, 200)}`)
+      return res.status(502).json({ error: 'Image recognition service unavailable' })
+    }
+
+    const text = await apiRes.text()
+    // Pollinations may return raw text or JSON
+    let name
+    try {
+      const json = JSON.parse(text)
+      name = json.choices?.[0]?.message?.content || json.text || text
+    } catch {
+      name = text
+    }
+
+    // Clean up the response
+    name = name.replace(/^["'\s]+|["'\s]+$/g, '').trim()
+    if (!name || name.toLowerCase() === 'unknown') {
+      return res.json({ name: null, identified: false })
+    }
+
+    // Also process the image for storage (256x256 PNG)
+    const pngBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(256, 256, { fit: 'cover' })
+      .png()
+      .toBuffer()
+    const imageUrl = await saveImage(pngBuffer)
+
+    console.log(`Identified: "${name}", saved image: ${imageUrl}`)
+    res.json({ name, identified: true, imageUrl })
+  } catch (err) {
+    console.error('Identify error:', err)
+    res.status(500).json({ error: 'Failed to identify ingredient' })
+  }
+})
+
 // Generate a transparent PNG for an ingredient name
 // Returns both AI image AND emoji so the user can choose
 app.post('/api/images/generate', async (req, res) => {

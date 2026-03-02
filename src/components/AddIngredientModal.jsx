@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null }) {
+export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
   const [preview, setPreview] = useState(null)
@@ -151,7 +151,7 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         {/* Header */}
         <div className="px-6 pt-6 pb-4 flex items-center justify-between">
           <h2 className="text-lg font-display font-semibold text-brown">
-            {showingGenerated ? 'Preview' : 'Add an Ingredient'}
+            {identifiedImage && !showingGenerated ? 'Ingredient Found' : showingGenerated ? 'Preview' : 'Add an Ingredient'}
           </h2>
           <button
             type="button"
@@ -164,7 +164,59 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           </button>
         </div>
 
-        {showingGenerated ? (
+        {identifiedImage && !showingGenerated ? (
+          /* ── Identified ingredient confirmation ── */
+          <div className="px-6 pb-6">
+            <div className="flex flex-col items-center gap-4">
+              <div className="w-32 h-32 rounded-2xl bg-sand/30 overflow-hidden shadow-sm">
+                <img src={identifiedImage} alt={name} className="w-full h-full object-cover" />
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-brown-light/60 mb-1">Detected ingredient</p>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="text-center text-lg font-display font-semibold text-brown
+                             border-b-2 border-dashed border-peach/40 focus:border-coral
+                             outline-none bg-transparent px-2 py-1 transition-colors"
+                />
+                <p className="text-xs text-brown-light/40 mt-1">Tap to edit if wrong</p>
+              </div>
+            </div>
+
+            {error && (
+              <p className="text-red-500 text-sm text-center mt-3">{error}</p>
+            )}
+
+            <div className="mt-6 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2.5 text-sm font-medium rounded-full
+                           border border-gray-200 text-brown-light hover:text-brown
+                           hover:border-gray-300 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave(identifiedImage, null)}
+                disabled={!name.trim() || processing}
+                className="btn-primary text-sm disabled:opacity-40 disabled:cursor-not-allowed
+                           flex items-center gap-2"
+              >
+                {processing && (
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                    <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+                  </svg>
+                )}
+                {processing ? 'Saving...' : 'Add to Fridge'}
+              </button>
+            </div>
+          </div>
+        ) : showingGenerated ? (
           /* ── Generated image preview — pick AI or emoji ── */
           <div className="px-6 pb-6">
             <p className="text-sm text-brown font-medium text-center mb-1">{name.trim()}</p>

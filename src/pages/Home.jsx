@@ -35,6 +35,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('')
   const [addFromSearch, setAddFromSearch] = useState('')
   const [addFromFile, setAddFromFile] = useState(null)
+  const [addFromIdentified, setAddFromIdentified] = useState(null) // { name, imageUrl }
+  const [identifying, setIdentifying] = useState(false)
   const searchInputRef = useRef(null)
   const searchContainerRef = useRef(null)
   const cameraInputRef = useRef(null)
@@ -94,15 +96,37 @@ export default function Home() {
     setShowModal(true)
   }
 
-  const handleImageSearch = (e) => {
+  const handleImageSearch = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
-    setAddFromFile(file)
+    e.target.value = ''
     setSearchOpen(false)
     setSearchQuery('')
+    setIdentifying(true)
+
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+      const res = await fetch('/api/images/identify', { method: 'POST', body: formData })
+      const data = await res.json()
+
+      if (data.identified && data.name) {
+        // Vision API identified the ingredient — open modal with pre-filled name + image
+        setAddFromIdentified({ name: data.name, imageUrl: data.imageUrl })
+        setAddFromFile(null)
+      } else {
+        // Could not identify — fall back to manual entry with the image
+        setAddFromFile(file)
+        setAddFromIdentified(null)
+      }
+    } catch {
+      // API error — fall back to manual entry
+      setAddFromFile(file)
+      setAddFromIdentified(null)
+    }
+
+    setIdentifying(false)
     setShowModal(true)
-    // Reset the input so the same file can be picked again
-    e.target.value = ''
   }
 
   return (
@@ -334,13 +358,27 @@ export default function Home() {
         </button>
       </div>
 
+      {/* Identifying overlay */}
+      {identifying && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-brown/30 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3">
+            <svg className="w-8 h-8 animate-spin text-coral" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+              <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+            </svg>
+            <p className="text-sm font-medium text-brown">Identifying ingredient...</p>
+          </div>
+        </div>
+      )}
+
       {/* Add ingredient modal */}
       {showModal && (
         <AddIngredientModal
           onSubmit={handleAddIngredient}
-          onClose={() => { setShowModal(false); setAddFromSearch(''); setAddFromFile(null) }}
-          initialName={addFromSearch}
+          onClose={() => { setShowModal(false); setAddFromSearch(''); setAddFromFile(null); setAddFromIdentified(null) }}
+          initialName={addFromIdentified?.name || addFromSearch}
           initialFile={addFromFile}
+          identifiedImage={addFromIdentified?.imageUrl}
         />
       )}
     </div>
