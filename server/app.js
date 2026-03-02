@@ -202,14 +202,14 @@ app.post('/api/images/identify', upload.single('image'), async (req, res) => {
       headers,
       signal: AbortSignal.timeout(30000),
       body: JSON.stringify({
-        model: 'gemini',
+        model: 'openai',
         messages: [
           {
             role: 'user',
             content: [
               {
                 type: 'text',
-                text: 'What food ingredient or food item is shown in this image? Reply with ONLY the ingredient name in 1-3 words, nothing else. Examples: "Edamame", "Cherry Tomatoes", "Olive Oil". If you cannot identify a food item, reply with "unknown".',
+                text: 'What food ingredient does this image look like? Reply with ONLY the ingredient name in 1-3 words, nothing else. Examples: "Edamame", "Cherry Tomatoes", "Olive Oil". If you cannot identify a food ingredient, reply with "unknown".',
               },
               {
                 type: 'image_url',
