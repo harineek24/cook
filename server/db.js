@@ -17,6 +17,15 @@ export async function initDb() {
   `)
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS audio_recordings (
+      id TEXT PRIMARY KEY,
+      data BYTEA NOT NULL,
+      mimetype TEXT NOT NULL DEFAULT 'audio/webm',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS ingredients (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,

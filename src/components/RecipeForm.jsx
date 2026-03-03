@@ -35,22 +35,34 @@ export default function RecipeForm({ onSubmit, onCancel }) {
 
       mediaRecorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-        const url = URL.createObjectURL(blob)
+        const localUrl = URL.createObjectURL(blob)
         setAudioBlob(blob)
-        setAudioUrl(url)
+        setAudioUrl(localUrl)
         stream.getTracks().forEach((track) => track.stop())
 
-        // Transcribe via server
         setTranscribing(true)
         try {
-          const formData = new FormData()
-          formData.append('audio', blob, 'recording.webm')
-          const res = await fetch('/api/audio/transcribe', {
-            method: 'POST',
-            body: formData,
-          })
-          if (res.ok) {
-            const data = await res.json()
+          // Upload audio to DB and transcribe in parallel
+          const uploadForm = new FormData()
+          uploadForm.append('audio', blob, 'recording.webm')
+
+          const transcribeForm = new FormData()
+          transcribeForm.append('audio', blob, 'recording.webm')
+
+          const [uploadRes, transcribeRes] = await Promise.all([
+            fetch('/api/audio/upload', { method: 'POST', body: uploadForm }),
+            fetch('/api/audio/transcribe', { method: 'POST', body: transcribeForm }),
+          ])
+
+          // Use server URL for the audio so it persists in the DB
+          if (uploadRes.ok) {
+            const { audioUrl: serverUrl } = await uploadRes.json()
+            URL.revokeObjectURL(localUrl)
+            setAudioUrl(serverUrl)
+          }
+
+          if (transcribeRes.ok) {
+            const data = await transcribeRes.json()
             if (data.structured?.trim()) {
               setContent(data.structured)
             } else if (data.transcript?.trim()) {
@@ -58,7 +70,7 @@ export default function RecipeForm({ onSubmit, onCancel }) {
             }
           }
         } catch {
-          // Transcription failed silently — user can still type manually
+          // Upload/transcription failed silently — user can still type manually
         } finally {
           setTranscribing(false)
         }
@@ -85,7 +97,7 @@ export default function RecipeForm({ onSubmit, onCancel }) {
   }
 
   const removeRecording = () => {
-    if (audioUrl) URL.revokeObjectURL(audioUrl)
+    if (audioUrl?.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
     setAudioBlob(null)
     setAudioUrl(null)
   }
