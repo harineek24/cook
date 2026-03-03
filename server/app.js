@@ -121,6 +121,40 @@ const uploadAudio = multer({
 
 // ── Routes ──────────────────────────────────────────────────────
 
+// Upload audio to database
+app.post('/api/audio/upload', uploadAudio.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No audio file uploaded' })
+    const id = crypto.randomUUID()
+    await pool.query(
+      'INSERT INTO audio_recordings (id, data, mimetype) VALUES ($1, $2, $3)',
+      [id, req.file.buffer, req.file.mimetype]
+    )
+    res.json({ audioUrl: `/api/audio/${id}` })
+  } catch (err) {
+    console.error('Audio upload error:', err)
+    res.status(500).json({ error: 'Failed to upload audio' })
+  }
+})
+
+// Serve audio from database
+app.get('/api/audio/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT data, mimetype FROM audio_recordings WHERE id = $1',
+      [req.params.id]
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'Audio not found' })
+
+    res.set('Content-Type', rows[0].mimetype)
+    res.set('Cache-Control', 'public, max-age=31536000, immutable')
+    res.send(rows[0].data)
+  } catch (err) {
+    console.error('Audio fetch error:', err)
+    res.status(500).json({ error: 'Failed to fetch audio' })
+  }
+})
+
 // Serve images from database
 app.get('/api/uploads/:id', async (req, res) => {
   try {
