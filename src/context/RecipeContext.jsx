@@ -47,26 +47,18 @@ export function RecipeProvider({ children }) {
   }, [])
 
   const addRecipe = async (recipe) => {
-    try {
-      const res = await fetch('/api/recipes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(recipe),
-      })
-      if (!res.ok) throw new Error('Failed to save recipe')
-      const saved = await res.json()
-      setRecipes((prev) => [saved, ...prev])
-      return saved
-    } catch (err) {
-      // Fallback: add locally so the UI still works
-      const fallback = {
-        ...recipe,
-        id: Date.now().toString(),
-        createdAt: new Date().toISOString(),
-      }
-      setRecipes((prev) => [fallback, ...prev])
-      return fallback
+    const res = await fetch('/api/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(recipe),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || 'Failed to save recipe')
     }
+    const saved = await res.json()
+    setRecipes((prev) => [saved, ...prev])
+    return saved
   }
 
   // Called after the modal already created the ingredient via the API

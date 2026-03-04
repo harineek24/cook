@@ -33,9 +33,16 @@ export default function Recipes() {
     )
   }
 
-  const handleSubmit = (recipe) => {
-    addRecipe({ ...recipe, ingredientId })
-    setShowForm(false)
+  const [recipeError, setRecipeError] = useState(null)
+
+  const handleSubmit = async (recipe) => {
+    setRecipeError(null)
+    try {
+      await addRecipe({ ...recipe, ingredientId })
+      setShowForm(false)
+    } catch (err) {
+      setRecipeError(err.message)
+    }
   }
 
   const handleChangeImage = async (e) => {
@@ -126,7 +133,8 @@ export default function Recipes() {
           <div className="mb-8 animate-in">
             <RecipeForm
               onSubmit={handleSubmit}
-              onCancel={() => setShowForm(false)}
+              onCancel={() => { setShowForm(false); setRecipeError(null) }}
+              error={recipeError}
             />
           </div>
         )}

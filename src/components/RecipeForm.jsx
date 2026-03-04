@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-export default function RecipeForm({ onSubmit, onCancel }) {
+export default function RecipeForm({ onSubmit, onCancel, error: externalError }) {
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
   const [cookTime, setCookTime] = useState('')
@@ -261,21 +261,26 @@ export default function RecipeForm({ onSubmit, onCancel }) {
       </div>
 
       {/* Form actions */}
-      <div className="px-5 sm:px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-6 py-2.5 text-brown-light hover:text-brown transition-colors text-sm font-medium"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={!title.trim() || !content.trim() || transcribing}
-          className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Share Recipe
-        </button>
+      <div className="px-5 sm:px-6 py-4 border-t border-gray-100">
+        {externalError && (
+          <p className="text-red-500 text-sm text-center mb-3">{externalError}</p>
+        )}
+        <div className="flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="px-6 py-2.5 text-brown-light hover:text-brown transition-colors text-sm font-medium"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!title.trim() || !content.trim() || transcribing}
+            className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Share Recipe
+          </button>
+        </div>
       </div>
     </form>
   )

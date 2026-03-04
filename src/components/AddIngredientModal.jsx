@@ -73,7 +73,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), imageUrl: imageUrl || null, emoji: emoji || null }),
       })
-      if (!res.ok) throw new Error('Failed to save ingredient')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to save ingredient')
+      }
       const ingredient = await res.json()
       onSubmit(ingredient)
       onClose()
@@ -174,7 +177,10 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), imageUrl, emoji }),
       })
-      if (!res.ok) throw new Error('Failed to save ingredient')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to save ingredient')
+      }
       const ingredient = await res.json()
       onSubmit(ingredient)
     } catch (err) {

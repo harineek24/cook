@@ -89,6 +89,43 @@ async function saveImage(pngBuffer) {
   return `/api/uploads/${id}`
 }
 
+// ── Food content guardrail ──────────────────────────────────────
+async function isFoodRelated(text, type = 'ingredient') {
+  if (!POLLINATIONS_KEY) return { ok: true } // skip validation if no API key
+
+  const prompts = {
+    ingredient: `Is "${text}" a food ingredient, drink, spice, condiment, or cooking-related item? Reply with ONLY "yes" or "no".`,
+    recipe: `Is the following text a food recipe or cooking instructions? Reply with ONLY "yes" or "no".\n\n${text.slice(0, 500)}`,
+  }
+
+  try {
+    const headers = { 'Content-Type': 'application/json' }
+    if (POLLINATIONS_KEY) headers['Authorization'] = `Bearer ${POLLINATIONS_KEY}`
+
+    const res = await fetch('https://gen.pollinations.ai/v1/chat/completions', {
+      method: 'POST',
+      headers,
+      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({
+        model: 'openai',
+        messages: [
+          { role: 'system', content: 'You are a food content validator. Answer only "yes" or "no".' },
+          { role: 'user', content: prompts[type] },
+        ],
+      }),
+    })
+
+    if (!res.ok) return { ok: true } // fail open if API is down
+
+    const data = await res.json()
+    const answer = (data.choices?.[0]?.message?.content || '').trim().toLowerCase()
+    const isFood = answer.startsWith('yes')
+    return { ok: isFood }
+  } catch {
+    return { ok: true } // fail open on errors
+  }
+}
+
 // ── Middleware ───────────────────────────────────────────────────
 app.use(cors())
 app.use(express.json())
@@ -396,6 +433,10 @@ app.post('/api/ingredients', async (req, res) => {
   const { name, imageUrl, emoji } = req.body
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' })
 
+  // Guardrail: check if it's a food item
+  const check = await isFoodRelated(name.trim(), 'ingredient')
+  if (!check.ok) return res.status(400).json({ error: `"${name.trim()}" doesn't seem like a food ingredient. Please add food-related items only.` })
+
   try {
     const ingredient = {
       id: name.trim().toLowerCase().replace(/\s+/g, '-') + '-' + Date.now(),
@@ -543,6 +584,10 @@ app.post('/api/recipes', async (req, res) => {
   if (!ingredientId || !title?.trim() || !content?.trim()) {
     return res.status(400).json({ error: 'ingredientId, title, and content are required' })
   }
+
+  // Guardrail: check if content looks like a food recipe
+  const check = await isFoodRelated(content.trim(), 'recipe')
+  if (!check.ok) return res.status(400).json({ error: "This doesn't seem like a food recipe. Please share cooking-related content only." })
 
   try {
     const id = Date.now().toString()
