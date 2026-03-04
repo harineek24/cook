@@ -202,10 +202,15 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
           const formData = new FormData()
           formData.append('image', file)
           const uploadRes = await fetch('/api/images/process', { method: 'POST', body: formData })
-          const uploadUrl = uploadRes.ok ? (await uploadRes.json()).url : null
+          if (!uploadRes.ok) {
+            const err = await uploadRes.json().catch(() => ({}))
+            throw new Error(err.error || 'Image upload failed')
+          }
+          const { url: uploadUrl } = await uploadRes.json()
+          if (!uploadUrl) throw new Error('No image URL returned')
           await handleAddToFridge(uploadUrl, null)
-        } catch {
-          setError('Failed to upload image')
+        } catch (err) {
+          setError(err.message || 'Failed to upload image')
           setProcessing(false)
           setStatus('')
         }
