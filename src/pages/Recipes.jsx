@@ -7,7 +7,7 @@ import RecipeForm from '../components/RecipeForm'
 
 export default function Recipes() {
   const { ingredientId } = useParams()
-  const { getRecipesByIngredient, addRecipe, deleteRecipe, updateIngredientImage, customIngredients } = useRecipes()
+  const { getRecipesByIngredient, addRecipe, updateIngredientImage, customIngredients } = useRecipes()
   const [showForm, setShowForm] = useState(false)
   const imageInputRef = useRef(null)
 
@@ -49,13 +49,7 @@ export default function Recipes() {
     e.target.value = ''
   }
 
-  const handleDeleteRecipe = async (recipeId) => {
-    try {
-      await deleteRecipe(recipeId)
-    } catch (err) {
-      console.error('Failed to delete recipe:', err)
-    }
-  }
+
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -146,7 +140,7 @@ export default function Recipes() {
         {recipes.length > 0 ? (
           <div className="space-y-6">
             {recipes.map((recipe) => (
-              <RecipeCard key={recipe.id} recipe={recipe} onDelete={handleDeleteRecipe} />
+              <RecipeCard key={recipe.id} recipe={recipe} />
             ))}
           </div>
         ) : (
