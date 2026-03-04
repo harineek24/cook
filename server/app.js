@@ -417,6 +417,32 @@ app.post('/api/ingredients', async (req, res) => {
   }
 })
 
+// Update a custom ingredient's image
+app.patch('/api/ingredients/:id/image', upload.single('image'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No image uploaded' })
+
+    const pngBuffer = await sharp(req.file.buffer)
+      .rotate()
+      .resize(256, 256, { fit: 'cover' })
+      .png()
+      .toBuffer()
+
+    const url = await saveImage(pngBuffer)
+    await pool.query('UPDATE ingredients SET image = $1 WHERE id = $2', [url, req.params.id])
+
+    const { rows } = await pool.query(
+      'SELECT id, name, image, emoji, custom FROM ingredients WHERE id = $1',
+      [req.params.id]
+    )
+    if (rows.length === 0) return res.status(404).json({ error: 'Ingredient not found' })
+    res.json(rows[0])
+  } catch (err) {
+    console.error('Update ingredient image error:', err)
+    res.status(500).json({ error: 'Failed to update image' })
+  }
+})
+
 // Delete a custom ingredient
 app.delete('/api/ingredients/:id', async (req, res) => {
   try {
@@ -536,6 +562,17 @@ app.post('/api/recipes', async (req, res) => {
   } catch (err) {
     console.error('Add recipe error:', err)
     res.status(500).json({ error: 'Failed to add recipe' })
+  }
+})
+
+// Delete a recipe
+app.delete('/api/recipes/:id', async (req, res) => {
+  try {
+    await pool.query('DELETE FROM recipes WHERE id = $1', [req.params.id])
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Delete recipe error:', err)
+    res.status(500).json({ error: 'Failed to delete recipe' })
   }
 })
 

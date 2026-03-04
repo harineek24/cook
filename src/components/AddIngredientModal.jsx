@@ -5,7 +5,7 @@ import { ingredients as defaultIngredients } from '../data/ingredients'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
   const navigate = useNavigate()
-  const { recipes, customIngredients } = useRecipes()
+  const { recipes, customIngredients, updateIngredientImage } = useRecipes()
 
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
@@ -190,8 +190,23 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     if (!name.trim()) return
 
     if (file) {
-      if (effectiveMatch) {
-        // Match found — go to its recipe page
+      if (effectiveMatch && effectiveMatch.custom) {
+        // Match found for a custom ingredient — update its image and navigate
+        setProcessing(true)
+        setError(null)
+        setStatus('Updating image...')
+        try {
+          await updateIngredientImage(effectiveMatch.id, file)
+          onClose()
+          navigate(`/recipes/${effectiveMatch.id}`)
+        } catch (err) {
+          setError(err.message || 'Failed to update image')
+          setProcessing(false)
+          setStatus('')
+        }
+        return
+      } else if (effectiveMatch) {
+        // Match found for a default ingredient — go to its recipe page
         handleSeeRecipes()
       } else {
         // No match — upload the image, save ingredient, go to its recipe page
@@ -201,11 +216,16 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
         try {
           const formData = new FormData()
           formData.append('image', file)
-          const uploadRes = await fetch('/api/images/upload', { method: 'POST', body: formData })
-          const uploadUrl = uploadRes.ok ? (await uploadRes.json()).url : null
+          const uploadRes = await fetch('/api/images/process', { method: 'POST', body: formData })
+          if (!uploadRes.ok) {
+            const err = await uploadRes.json().catch(() => ({}))
+            throw new Error(err.error || 'Image upload failed')
+          }
+          const { url: uploadUrl } = await uploadRes.json()
+          if (!uploadUrl) throw new Error('No image URL returned')
           await handleAddToFridge(uploadUrl, null)
-        } catch {
-          setError('Failed to upload image')
+        } catch (err) {
+          setError(err.message || 'Failed to upload image')
           setProcessing(false)
           setStatus('')
         }
