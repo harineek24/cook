@@ -5,7 +5,7 @@ import { ingredients as defaultIngredients } from '../data/ingredients'
 
 export default function AddIngredientModal({ onSubmit, onClose, initialName = '', initialFile = null, identifiedImage = null }) {
   const navigate = useNavigate()
-  const { recipes, customIngredients } = useRecipes()
+  const { recipes, customIngredients, updateIngredientImage } = useRecipes()
 
   const [name, setName] = useState(initialName)
   const [file, setFile] = useState(initialFile)
@@ -190,8 +190,23 @@ export default function AddIngredientModal({ onSubmit, onClose, initialName = ''
     if (!name.trim()) return
 
     if (file) {
-      if (effectiveMatch) {
-        // Match found — go to its recipe page
+      if (effectiveMatch && effectiveMatch.custom) {
+        // Match found for a custom ingredient — update its image and navigate
+        setProcessing(true)
+        setError(null)
+        setStatus('Updating image...')
+        try {
+          await updateIngredientImage(effectiveMatch.id, file)
+          onClose()
+          navigate(`/recipes/${effectiveMatch.id}`)
+        } catch (err) {
+          setError(err.message || 'Failed to update image')
+          setProcessing(false)
+          setStatus('')
+        }
+        return
+      } else if (effectiveMatch) {
+        // Match found for a default ingredient — go to its recipe page
         handleSeeRecipes()
       } else {
         // No match — upload the image, save ingredient, go to its recipe page

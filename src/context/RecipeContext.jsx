@@ -74,6 +74,32 @@ export function RecipeProvider({ children }) {
     setCustomIngredients((prev) => [...prev, ingredient])
   }, [])
 
+  const deleteRecipe = useCallback(async (recipeId) => {
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Failed to delete recipe')
+      setRecipes((prev) => prev.filter((r) => r.id !== recipeId))
+    } catch (err) {
+      console.error('Delete recipe error:', err)
+      throw err
+    }
+  }, [])
+
+  const updateIngredientImage = useCallback(async (ingredientId, file) => {
+    const formData = new FormData()
+    formData.append('image', file)
+    const res = await fetch(`/api/ingredients/${ingredientId}/image`, {
+      method: 'PATCH',
+      body: formData,
+    })
+    if (!res.ok) throw new Error('Failed to update image')
+    const updated = await res.json()
+    setCustomIngredients((prev) =>
+      prev.map((i) => (i.id === ingredientId ? updated : i))
+    )
+    return updated
+  }, [])
+
   const getRecipesByIngredient = (ingredientId) => {
     return recipes.filter((r) => r.ingredientId === ingredientId)
   }
@@ -81,7 +107,7 @@ export function RecipeProvider({ children }) {
   return (
     <RecipeContext.Provider value={{
       recipes, addRecipe, getRecipesByIngredient,
-      customIngredients, addIngredient, loaded,
+      customIngredients, addIngredient, loaded, deleteRecipe, updateIngredientImage,
     }}>
       {children}
     </RecipeContext.Provider>
